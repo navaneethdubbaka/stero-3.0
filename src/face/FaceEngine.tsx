@@ -16,12 +16,13 @@ import Animated, {
   withRepeat,
   cancelAnimation,
   useAnimatedStyle,
+  createAnimatedComponent,
 } from 'react-native-reanimated';
 import { useEmotionStore } from '../store/useEmotionStore';
 
-const AnimatedPath = Animated.createAnimatedComponent(Path);
-const AnimatedCircle = Animated.createAnimatedComponent(Circle);
-const AnimatedRect = Animated.createAnimatedComponent(Rect);
+const AnimatedPath = createAnimatedComponent(Path);
+const AnimatedCircle = createAnimatedComponent(Circle);
+const AnimatedRect = createAnimatedComponent(Rect);
 
 // Size Constants for the Face Layout
 const CANVAS_WIDTH = 800;
