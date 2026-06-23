@@ -10,7 +10,16 @@ export type EmotionType =
   | 'SLEEPY'
   | 'SAD'
   | 'ANGRY'
-  | 'EXCITED';
+  | 'EXCITED'
+  | 'JOY'
+  | 'CONFUSED'
+  | 'ALERT'
+  | 'MESSAGE'
+  | 'LOW_BATTERY'
+  | 'HEART'
+  | 'MAIL'
+  | 'WINKING'
+  | 'DEAD';
 
 interface EmotionState {
   currentEmotion: EmotionType;

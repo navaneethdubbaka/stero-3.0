@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, ScrollView } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { StyleSheet, View, Text, TouchableOpacity, ScrollView, TouchableWithoutFeedback } from 'react-native';
 import { FaceEngine } from '../face/FaceEngine';
 import { useEmotionStore, EmotionType, startBlinkingLoop, stopBlinkingLoop } from '../store/useEmotionStore';
 
@@ -14,11 +14,22 @@ const EMOTIONS: EmotionType[] = [
   'SAD',
   'ANGRY',
   'EXCITED',
+  'JOY',
+  'CONFUSED',
+  'ALERT',
+  'MESSAGE',
+  'LOW_BATTERY',
+  'HEART',
+  'MAIL',
+  'WINKING',
+  'DEAD',
 ];
 
 export const FaceScreen: React.FC = () => {
   const { currentEmotion, setEmotion, isSpeaking, setSpeaking } = useEmotionStore();
   const [showTray, setShowTray] = useState(false);
+  const [menuVisible, setMenuVisible] = useState(false);
+  const lastTap = useRef<number>(0);
 
   // Start the blinking loop on mount and stop on unmount
   useEffect(() => {
@@ -28,68 +39,81 @@ export const FaceScreen: React.FC = () => {
     };
   }, []);
 
+  const handleDoubleTap = () => {
+    const now = Date.now();
+    const DOUBLE_TAP_DELAY = 300;
+    if (now - lastTap.current < DOUBLE_TAP_DELAY) {
+      setMenuVisible((prev) => !prev);
+    }
+    lastTap.current = now;
+  };
+
   return (
-    <View style={styles.container}>
-      {/* Full-screen Face Canvas */}
-      <FaceEngine />
+    <TouchableWithoutFeedback onPress={handleDoubleTap}>
+      <View style={styles.container}>
+        {/* Full-screen Face Canvas */}
+        <FaceEngine />
 
-      {/* Floating Toggle Button for Debug Tray */}
-      <TouchableOpacity
-        style={styles.floatingButton}
-        onPress={() => setShowTray(!showTray)}
-        activeOpacity={0.8}
-      >
-        <Text style={styles.floatingButtonText}>{showTray ? '✕' : '⚙'}</Text>
-      </TouchableOpacity>
-
-      {/* Glassmorphic Debug Tray */}
-      {showTray && (
-        <View style={styles.tray}>
-          <Text style={styles.trayTitle}>Robot Emotion Controls</Text>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.scrollContent}
+        {/* Floating Toggle Button for Debug Tray */}
+        {menuVisible && (
+          <TouchableOpacity
+            style={styles.floatingButton}
+            onPress={() => setShowTray(!showTray)}
+            activeOpacity={0.8}
           >
-            {EMOTIONS.map((emotion) => (
+            <Text style={styles.floatingButtonText}>{showTray ? '✕' : '⚙'}</Text>
+          </TouchableOpacity>
+        )}
+
+        {/* Glassmorphic Debug Tray */}
+        {menuVisible && showTray && (
+          <View style={styles.tray}>
+            <Text style={styles.trayTitle}>Robot Emotion Controls</Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.scrollContent}
+            >
+              {EMOTIONS.map((emotion) => (
+                <TouchableOpacity
+                  key={emotion}
+                  style={[
+                    styles.button,
+                    currentEmotion === emotion && styles.activeButton,
+                  ]}
+                  onPress={() => setEmotion(emotion)}
+                  activeOpacity={0.7}
+                >
+                  <Text
+                    style={[
+                      styles.buttonText,
+                      currentEmotion === emotion && styles.activeButtonText,
+                    ]}
+                  >
+                    {emotion}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+
               <TouchableOpacity
-                key={emotion}
-                style={[
-                  styles.button,
-                  currentEmotion === emotion && styles.activeButton,
-                ]}
-                onPress={() => setEmotion(emotion)}
+                style={[styles.button, isSpeaking && styles.activeButtonSpeaking]}
+                onPress={() => setSpeaking(!isSpeaking)}
                 activeOpacity={0.7}
               >
                 <Text
                   style={[
                     styles.buttonText,
-                    currentEmotion === emotion && styles.activeButtonText,
+                    isSpeaking && styles.activeButtonText,
                   ]}
                 >
-                  {emotion}
+                  {isSpeaking ? 'STOP TALK' : 'START TALK'}
                 </Text>
               </TouchableOpacity>
-            ))}
-
-            <TouchableOpacity
-              style={[styles.button, isSpeaking && styles.activeButtonSpeaking]}
-              onPress={() => setSpeaking(!isSpeaking)}
-              activeOpacity={0.7}
-            >
-              <Text
-                style={[
-                  styles.buttonText,
-                  isSpeaking && styles.activeButtonText,
-                ]}
-              >
-                {isSpeaking ? 'STOP TALK' : 'START TALK'}
-              </Text>
-            </TouchableOpacity>
-          </ScrollView>
-        </View>
-      )}
-    </View>
+            </ScrollView>
+          </View>
+        )}
+      </View>
+    </TouchableWithoutFeedback>
   );
 };
 
