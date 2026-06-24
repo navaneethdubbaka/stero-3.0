@@ -90,8 +90,8 @@ void moveForward() {
   motorLeft.setSpeed(motorSpeed);
   motorRight.setSpeed(motorSpeed);
 
-  motorLeft.run(FORWARD);
-  motorRight.run(FORWARD);
+  motorLeft.run(BACKWARD);
+  motorRight.run(BACKWARD);
 }
 
 void moveBackward() {
@@ -99,8 +99,8 @@ void moveBackward() {
   motorLeft.setSpeed(motorSpeed);
   motorRight.setSpeed(motorSpeed);
 
-  motorLeft.run(BACKWARD);
-  motorRight.run(BACKWARD);
+  motorLeft.run(FORWARD);
+  motorRight.run(FORWARD);
 }
 
 void rotateLeft() {
@@ -108,8 +108,8 @@ void rotateLeft() {
   motorLeft.setSpeed(motorSpeed);
   motorRight.setSpeed(motorSpeed);
 
-  motorLeft.run(BACKWARD);
-  motorRight.run(FORWARD);
+  motorLeft.run(FORWARD);
+  motorRight.run(BACKWARD);
 }
 
 void rotateRight() {
@@ -117,8 +117,8 @@ void rotateRight() {
   motorLeft.setSpeed(motorSpeed);
   motorRight.setSpeed(motorSpeed);
 
-  motorLeft.run(FORWARD);
-  motorRight.run(BACKWARD);
+  motorLeft.run(BACKWARD);
+  motorRight.run(FORWARD);
 }
 
 void stopMotors() {

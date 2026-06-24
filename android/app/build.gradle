@@ -111,6 +111,7 @@ dependencies {
     // The version of react-native is set by the React Native Gradle Plugin
     implementation("com.facebook.react:react-android")
     implementation("com.github.mik3y:usb-serial-for-android:3.8.0")
+    implementation("org.nanohttpd:nanohttpd:2.3.1")
 
     if (hermesEnabled.toBoolean()) {
         implementation("com.facebook.react:hermes-android")

@@ -189,7 +189,12 @@ export const SerialTestScreen: React.FC<{ navigation: any }> = ({ navigation }) 
         {/* Log Panel */}
         <View style={styles.logPanel}>
           <Text style={styles.logTitle}>SERIAL LOG</Text>
-          <ScrollView style={styles.logScroll} showsVerticalScrollIndicator>
+          <ScrollView 
+            style={styles.logScroll} 
+            contentContainerStyle={styles.logScrollContent}
+            nestedScrollEnabled={true}
+            showsVerticalScrollIndicator={true}
+          >
             {logs.length === 0 ? (
               <Text style={styles.logEmpty}>Tap a button above to start testing...</Text>
             ) : (
@@ -376,6 +381,9 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: 10,
     paddingVertical: 6,
+  },
+  logScrollContent: {
+    flexGrow: 1,
   },
   logEmpty: {
     color: '#555',

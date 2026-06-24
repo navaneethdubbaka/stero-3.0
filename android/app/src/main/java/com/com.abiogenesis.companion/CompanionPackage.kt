@@ -9,7 +9,8 @@ class CompanionPackage : ReactPackage {
     override fun createNativeModules(reactContext: ReactApplicationContext): List<NativeModule> {
         return listOf(
             SharedPrefsModule(reactContext),
-            UsbSerialModule(reactContext)
+            UsbSerialModule(reactContext),
+            WebControllerModule(reactContext)
         )
     }
 
