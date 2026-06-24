@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { StyleSheet, View } from 'react-native';
 import Video from 'react-native-video';
 import { useEmotionStore, EmotionType } from '../store/useEmotionStore';
@@ -26,21 +26,53 @@ const emotionVideos: Record<EmotionType, any> = {
 };
 
 export const FaceEngine: React.FC = () => {
-  const { currentEmotion } = useEmotionStore();
-  const videoSource = emotionVideos[currentEmotion] || emotionVideos.IDLE;
+  const currentEmotion = useEmotionStore((state) => state.currentEmotion);
+  const [activeReady, setActiveReady] = useState(false);
+
+  const isIdle = currentEmotion === 'IDLE';
+  const activeVideoSource = emotionVideos[currentEmotion];
+
+  // When emotion changes, reset ready state for the active player
+  useEffect(() => {
+    if (!isIdle) {
+      setActiveReady(false);
+    }
+  }, [currentEmotion, isIdle]);
 
   return (
     <View style={styles.container} pointerEvents="none">
+      {/* 1. Permanent Idle Player (Plays normal face continuously) */}
       <Video
-        key={currentEmotion}
-        source={videoSource}
-        style={styles.video}
+        source={emotionVideos.IDLE}
+        style={[
+          styles.video,
+          { opacity: isIdle || !activeReady ? 1 : 0 },
+        ]}
         resizeMode="contain"
         repeat={true}
         muted={true}
         playInBackground={false}
         disableFocus={true}
+        paused={!isIdle && activeReady}
       />
+
+      {/* 2. Dynamic Emotion Player */}
+      {!isIdle && (
+        <Video
+          source={activeVideoSource}
+          style={[
+            styles.video,
+            styles.absoluteVideo,
+            { opacity: activeReady ? 1 : 0 },
+          ]}
+          resizeMode="contain"
+          repeat={true}
+          muted={true}
+          playInBackground={false}
+          disableFocus={true}
+          onReadyForDisplay={() => setActiveReady(true)}
+        />
+      )}
     </View>
   );
 };
@@ -59,5 +91,11 @@ const styles = StyleSheet.create({
     height: '100%',
     transform: [{ scale: 1.45 }],
   },
+  absoluteVideo: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
 });
-

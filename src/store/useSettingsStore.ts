@@ -1,4 +1,7 @@
 import { create } from 'zustand';
+import { NativeModules } from 'react-native';
+
+const { SharedPrefs } = NativeModules;
 
 interface AISettings {
   baseUrl: string;
@@ -37,9 +40,24 @@ interface SettingsState {
   updateVoiceSettings: (settings: Partial<VoiceSettings>) => void;
   updateRobotSettings: (settings: Partial<RobotSettings>) => void;
   updateDisplaySettings: (settings: Partial<DisplaySettings>) => void;
+  initializeSettings: () => Promise<void>;
 }
 
-export const useSettingsStore = create<SettingsState>((set) => ({
+const saveToStorage = async (state: any) => {
+  try {
+    const payload = JSON.stringify({
+      ai: state.ai,
+      voice: state.voice,
+      robot: state.robot,
+      display: state.display,
+    });
+    await SharedPrefs.setString('settings', payload);
+  } catch (e) {
+    console.error('Failed to save settings to SharedPrefs:', e);
+  }
+};
+
+export const useSettingsStore = create<SettingsState>((set, get) => ({
   ai: {
     baseUrl: 'https://api.openai.com/v1',
     apiKey: '',
@@ -68,12 +86,36 @@ Keep responses very concise, conversational, and direct.`,
     sleepTimeout: 5, // minutes
   },
 
-  updateAISettings: (settings) =>
-    set((state) => ({ ai: { ...state.ai, ...settings } })),
-  updateVoiceSettings: (settings) =>
-    set((state) => ({ voice: { ...state.voice, ...settings } })),
-  updateRobotSettings: (settings) =>
-    set((state) => ({ robot: { ...state.robot, ...settings } })),
-  updateDisplaySettings: (settings) =>
-    set((state) => ({ display: { ...state.display, ...settings } })),
+  updateAISettings: (settings) => {
+    set((state) => ({ ai: { ...state.ai, ...settings } }));
+    saveToStorage(get());
+  },
+  updateVoiceSettings: (settings) => {
+    set((state) => ({ voice: { ...state.voice, ...settings } }));
+    saveToStorage(get());
+  },
+  updateRobotSettings: (settings) => {
+    set((state) => ({ robot: { ...state.robot, ...settings } }));
+    saveToStorage(get());
+  },
+  updateDisplaySettings: (settings) => {
+    set((state) => ({ display: { ...state.display, ...settings } }));
+    saveToStorage(get());
+  },
+  initializeSettings: async () => {
+    try {
+      const data = await SharedPrefs.getString('settings', '');
+      if (data) {
+        const parsed = JSON.parse(data);
+        set((state) => ({
+          ai: { ...state.ai, ...parsed.ai },
+          voice: { ...state.voice, ...parsed.voice },
+          robot: { ...state.robot, ...parsed.robot },
+          display: { ...state.display, ...parsed.display },
+        }));
+      }
+    } catch (e) {
+      console.error('Failed to initialize settings from SharedPrefs:', e);
+    }
+  },
 }));

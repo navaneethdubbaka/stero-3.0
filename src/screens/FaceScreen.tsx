@@ -25,8 +25,11 @@ const EMOTIONS: EmotionType[] = [
   'DEAD',
 ];
 
-export const FaceScreen: React.FC = () => {
-  const { currentEmotion, setEmotion, isSpeaking, setSpeaking } = useEmotionStore();
+export const FaceScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
+  const currentEmotion = useEmotionStore((state) => state.currentEmotion);
+  const setEmotion = useEmotionStore((state) => state.setEmotion);
+  const isSpeaking = useEmotionStore((state) => state.isSpeaking);
+  const setSpeaking = useEmotionStore((state) => state.setSpeaking);
   const [showTray, setShowTray] = useState(false);
   const [menuVisible, setMenuVisible] = useState(false);
   const lastTap = useRef<number>(0);
@@ -54,15 +57,24 @@ export const FaceScreen: React.FC = () => {
         {/* Full-screen Face Canvas */}
         <FaceEngine />
 
-        {/* Floating Toggle Button for Debug Tray */}
+        {/* Floating Toggle Buttons */}
         {menuVisible && (
-          <TouchableOpacity
-            style={styles.floatingButton}
-            onPress={() => setShowTray(!showTray)}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.floatingButtonText}>{showTray ? '✕' : '⚙'}</Text>
-          </TouchableOpacity>
+          <>
+            <TouchableOpacity
+              style={styles.floatingBackButton}
+              onPress={() => navigation.navigate('Home')}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.floatingButtonText}>🏠</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.floatingButton}
+              onPress={() => setShowTray(!showTray)}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.floatingButtonText}>{showTray ? '✕' : '⚙'}</Text>
+            </TouchableOpacity>
+          </>
         )}
 
         {/* Glassmorphic Debug Tray */}
@@ -121,6 +133,20 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#000000',
+  },
+  floatingBackButton: {
+    position: 'absolute',
+    top: 20,
+    left: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.25)',
+    zIndex: 10,
   },
   floatingButton: {
     position: 'absolute',
