@@ -132,6 +132,51 @@ export class UsbSerialService {
     }
   }
 
+  /**
+   * Write raw byte array for guaranteed byte-level control.
+   * Each element in the array should be a number 0-255.
+   * Example: writeBytes([0x46, 0x0A]) sends 'F\n'
+   */
+  static async writeBytes(bytes: number[]): Promise<boolean> {
+    if (Platform.OS !== 'android' || !UsbSerial) {
+      return false;
+    }
+    if (!this.isConnectedState) {
+      return false;
+    }
+    try {
+      await UsbSerial.writeBytes(bytes);
+      return true;
+    } catch (e: any) {
+      console.error('Failed to writeBytes to USB Serial:', e);
+      this.lastError = `writeBytes failed: ${e.message || e}`;
+      this.lastAction = `writeBytes: ERROR — ${e.message || e}`;
+      this.isConnectedState = false;
+      useRobotStore.getState().setConnected(false);
+      return false;
+    }
+  }
+
+  /**
+   * Read available data from the serial port.
+   * Returns the response as a string, or empty string if no data.
+   */
+  static async read(): Promise<string> {
+    if (Platform.OS !== 'android' || !UsbSerial) {
+      return '';
+    }
+    if (!this.isConnectedState) {
+      return '';
+    }
+    try {
+      return await UsbSerial.read();
+    } catch (e: any) {
+      console.error('Failed to read from USB Serial:', e);
+      this.lastError = `read failed: ${e.message || e}`;
+      return '';
+    }
+  }
+
   static async autoConnect(): Promise<boolean> {
     console.log('[UsbSerialService] Running auto-connect probe...');
     this.lastAction = 'autoConnect: probing...';

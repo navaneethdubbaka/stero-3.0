@@ -81,15 +81,15 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
             <Text style={styles.cardDesc}>Configure AI provider, voice, and system defaults</Text>
           </TouchableOpacity>
 
-          {/* Card 4: USB Helper */}
+          {/* Card 4: Serial Debugger */}
           <TouchableOpacity
             style={styles.card}
-            onPress={handleRetryUsb}
+            onPress={() => navigation.navigate('SerialTest')}
             activeOpacity={0.8}
           >
             <Text style={styles.cardIcon}>🔌</Text>
-            <Text style={styles.cardTitle}>USB Probe</Text>
-            <Text style={styles.cardDesc}>Scan for Arduino connection. Tap to reconnect</Text>
+            <Text style={styles.cardTitle}>Serial Debugger</Text>
+            <Text style={styles.cardDesc}>Test USB serial connection. Send commands and read responses</Text>
           </TouchableOpacity>
         </View>
 

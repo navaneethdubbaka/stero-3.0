@@ -53,7 +53,10 @@ void processCommand(String command) {
 
   if (command.length() == 0) return;
 
-  // NOTE: All Serial.print/println statements have been removed to prevent the serial TX buffer 
+  // Echo acknowledgment back (safe: one response per command, won't flood TX buffer)
+  Serial.println("ACK:" + command);
+
+  // NOTE: All other Serial.print/println statements have been removed to prevent the serial TX buffer 
   // from filling up and blocking the main thread, which would freeze the Arduino.
 
   // Direction Commands
