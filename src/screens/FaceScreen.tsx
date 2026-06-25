@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, ScrollView, TouchableWithoutFeedback } from 'react-native';
 import { FaceEngine } from '../face/FaceEngine';
 import { useEmotionStore, EmotionType, startBlinkingLoop, stopBlinkingLoop } from '../store/useEmotionStore';
+import VoiceService from '../voice/VoiceService';
 
 const EMOTIONS: EmotionType[] = [
   'IDLE',
@@ -34,11 +35,14 @@ export const FaceScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const [menuVisible, setMenuVisible] = useState(false);
   const lastTap = useRef<number>(0);
 
-  // Start the blinking loop on mount and stop on unmount
+  // Start the blinking loop and voice service on mount, stop on unmount
   useEffect(() => {
     startBlinkingLoop();
+    VoiceService.startWakeWordDetection();
     return () => {
       stopBlinkingLoop();
+      VoiceService.stopWakeWordDetection();
+      VoiceService.stopSpeaking();
     };
   }, []);
 

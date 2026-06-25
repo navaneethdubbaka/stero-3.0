@@ -10,7 +10,8 @@ class CompanionPackage : ReactPackage {
         return listOf(
             SharedPrefsModule(reactContext),
             UsbSerialModule(reactContext),
-            WebControllerModule(reactContext)
+            WebControllerModule(reactContext),
+            VoiceModule(reactContext)
         )
     }
 
