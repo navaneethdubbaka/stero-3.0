@@ -1,12 +1,31 @@
-import React, { useState } from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, ScrollView, TextInput, SafeAreaView } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { StyleSheet, View, Text, TouchableOpacity, ScrollView, TextInput, SafeAreaView, NativeModules } from 'react-native';
 import { useSettingsStore } from '../store/useSettingsStore';
+import { useConversationStore } from '../store/useConversationStore';
 
-type SettingsTab = 'AI' | 'VOICE' | 'ROBOT' | 'DISPLAY';
+const { VoiceModule } = NativeModules;
+
+type SettingsTab = 'AI' | 'VOICE' | 'ROBOT' | 'DISPLAY' | 'LOGS';
 
 export const SettingsScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const { ai, voice, robot, display, updateAISettings, updateVoiceSettings, updateRobotSettings, updateDisplaySettings } = useSettingsStore();
+  const { messages, apiErrors, clearConversation, clearErrors } = useConversationStore();
   const [activeTab, setActiveTab] = useState<SettingsTab>('AI');
+  const [availableVoices, setAvailableVoices] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (activeTab === 'VOICE') {
+      VoiceModule.getAvailableVoices()
+        .then((voices: any[]) => {
+          // Filter English voices
+          const filtered = voices.filter((v: any) =>
+            v.locale.toLowerCase().startsWith('en') || v.name.toLowerCase().includes('en')
+          );
+          setAvailableVoices(filtered);
+        })
+        .catch((err: any) => console.warn('Failed to load system voices', err));
+    }
+  }, [activeTab]);
 
   const renderAITab = () => (
     <View style={styles.tabContent}>
@@ -102,7 +121,7 @@ export const SettingsScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
         placeholderTextColor="#555"
       />
 
-      <Text style={styles.label}>Voice Engine Code</Text>
+      <Text style={styles.label}>Selected Voice Engine Code</Text>
       <TextInput
         style={styles.input}
         value={voice.voice}
@@ -110,6 +129,48 @@ export const SettingsScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
         placeholder="en-us-x-sfg#female_1-local"
         placeholderTextColor="#555"
       />
+
+      <Text style={styles.label}>Available Natural Voices (Click to Select & Preview)</Text>
+      {availableVoices.length > 0 ? (
+        <ScrollView style={styles.voiceList} nestedScrollEnabled>
+          {availableVoices.map((v) => {
+            const isSelected = voice.voice === v.name;
+            return (
+              <TouchableOpacity
+                key={v.name}
+                style={[
+                  styles.voiceItem,
+                  isSelected && styles.activeVoiceItem
+                ]}
+                onPress={async () => {
+                  updateVoiceSettings({ voice: v.name });
+                  try {
+                    await VoiceModule.setVoiceSettings(voice.speechRate, voice.volume);
+                    await VoiceModule.speak("Hello! This is a preview of my voice.", v.name);
+                  } catch (e) {
+                    console.error('Failed to preview voice', e);
+                  }
+                }}
+              >
+                <View style={styles.voiceItemRow}>
+                  <Text style={[styles.voiceNameText, isSelected && styles.activeVoiceNameText]}>
+                    {v.name.replace('en-us-x-', '').replace('-local', '')}
+                  </Text>
+                  {v.isNetwork && (
+                    <Text style={styles.networkTag}>CLOUD</Text>
+                  )}
+                  {isSelected && (
+                    <Text style={styles.selectedCheck}>✓</Text>
+                  )}
+                </View>
+                <Text style={styles.voiceLocaleText}>Locale: {v.locale}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      ) : (
+        <Text style={styles.noVoicesText}>No system voices found or loading...</Text>
+      )}
 
       <View style={styles.row}>
         <View style={styles.halfWidth}>
@@ -263,6 +324,72 @@ export const SettingsScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
     </View>
   );
 
+  const renderLogsTab = () => (
+    <View style={styles.tabContent}>
+      {/* 1. Conversation Logs */}
+      <View style={styles.sectionHeaderRow}>
+        <Text style={styles.sectionTitle}>Conversation History</Text>
+        {messages.length > 0 && (
+          <TouchableOpacity style={styles.clearBtn} onPress={clearConversation}>
+            <Text style={styles.clearBtnText}>Clear History</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+
+      {messages.length > 0 ? (
+        <ScrollView style={styles.logContainer} nestedScrollEnabled>
+          {messages.map((msg) => {
+            const dateStr = new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            return (
+              <View key={msg.id} style={[styles.msgItem, msg.role === 'user' ? styles.userMsgItem : msg.role === 'system' ? styles.systemMsgItem : styles.assistantMsgItem]}>
+                <View style={styles.msgHeader}>
+                  <Text style={[styles.msgRoleText, msg.role === 'user' ? styles.userRoleText : msg.role === 'system' ? styles.systemRoleText : styles.assistantRoleText]}>
+                    {msg.role.toUpperCase()}
+                  </Text>
+                  <Text style={styles.msgTimeText}>{dateStr}</Text>
+                </View>
+                <Text style={styles.msgContentText}>{msg.content}</Text>
+              </View>
+            );
+          })}
+        </ScrollView>
+      ) : (
+        <Text style={styles.noLogsText}>No conversations recorded on device yet.</Text>
+      )}
+
+      {/* 2. API Error Logs */}
+      <View style={[styles.sectionHeaderRow, { marginTop: 24 }]}>
+        <Text style={styles.sectionTitle}>API Error History</Text>
+        {apiErrors.length > 0 && (
+          <TouchableOpacity style={styles.clearBtn} onPress={clearErrors}>
+            <Text style={styles.clearBtnText}>Clear Error Logs</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+
+      {apiErrors.length > 0 ? (
+        <ScrollView style={styles.logContainer} nestedScrollEnabled>
+          {apiErrors.map((err) => {
+            const dateStr = new Date(err.timestamp).toLocaleString();
+            return (
+              <View key={err.id} style={styles.errorItem}>
+                <View style={styles.errorHeader}>
+                  <Text style={styles.errorTitleText}>⚠ {err.message}</Text>
+                  <Text style={styles.errorTimeText}>{dateStr}</Text>
+                </View>
+                {err.details && (
+                  <Text style={styles.errorDetailsText}>{err.details}</Text>
+                )}
+              </View>
+            );
+          })}
+        </ScrollView>
+      ) : (
+        <Text style={styles.noLogsText}>No API errors recorded. Systems normal!</Text>
+      )}
+    </View>
+  );
+
   return (
     <SafeAreaView style={styles.safeArea}>
       {/* Settings Navigation Bar */}
@@ -276,7 +403,7 @@ export const SettingsScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
 
       {/* Tabs */}
       <View style={styles.tabsRow}>
-        {(['AI', 'VOICE', 'ROBOT', 'DISPLAY'] as SettingsTab[]).map((tab) => (
+        {(['AI', 'VOICE', 'ROBOT', 'DISPLAY', 'LOGS'] as SettingsTab[]).map((tab) => (
           <TouchableOpacity
             key={tab}
             style={[styles.tabButton, activeTab === tab && styles.activeTabButton]}
@@ -294,6 +421,7 @@ export const SettingsScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
         {activeTab === 'VOICE' && renderVoiceTab()}
         {activeTab === 'ROBOT' && renderRobotTab()}
         {activeTab === 'DISPLAY' && renderDisplayTab()}
+        {activeTab === 'LOGS' && renderLogsTab()}
       </ScrollView>
     </SafeAreaView>
   );
@@ -451,5 +579,178 @@ const styles = StyleSheet.create({
   },
   activeChoiceText: {
     color: '#00FFFF',
+  },
+  voiceList: {
+    maxHeight: 180,
+    backgroundColor: 'rgba(255, 255, 255, 0.02)',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    padding: 8,
+    marginBottom: 20,
+  },
+  voiceItem: {
+    padding: 12,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  activeVoiceItem: {
+    backgroundColor: 'rgba(0, 255, 255, 0.06)',
+    borderColor: 'rgba(0, 255, 255, 0.3)',
+  },
+  voiceItemRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  voiceNameText: {
+    color: '#D0D0D0',
+    fontSize: 14,
+    fontWeight: '600',
+    flex: 1,
+  },
+  activeVoiceNameText: {
+    color: '#00FFFF',
+    fontWeight: 'bold',
+  },
+  networkTag: {
+    fontSize: 9,
+    color: '#FF007F',
+    backgroundColor: 'rgba(255, 0, 127, 0.15)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    marginRight: 8,
+    fontWeight: 'bold',
+  },
+  selectedCheck: {
+    color: '#00FFFF',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  voiceLocaleText: {
+    color: 'rgba(255, 255, 255, 0.4)',
+    fontSize: 11,
+    marginTop: 2,
+  },
+  noVoicesText: {
+    color: 'rgba(255, 255, 255, 0.4)',
+    fontSize: 13,
+    fontStyle: 'italic',
+    marginBottom: 20,
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  clearBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+    backgroundColor: 'rgba(255, 0, 85, 0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 0, 85, 0.3)',
+  },
+  clearBtnText: {
+    color: '#FF0055',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  logContainer: {
+    maxHeight: 250,
+    backgroundColor: 'rgba(255, 255, 255, 0.02)',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    padding: 8,
+  },
+  msgItem: {
+    padding: 10,
+    borderRadius: 8,
+    marginBottom: 8,
+    borderWidth: 1,
+  },
+  userMsgItem: {
+    backgroundColor: 'rgba(0, 255, 255, 0.03)',
+    borderColor: 'rgba(0, 255, 255, 0.1)',
+  },
+  assistantMsgItem: {
+    backgroundColor: 'rgba(255, 0, 255, 0.03)',
+    borderColor: 'rgba(255, 0, 255, 0.1)',
+  },
+  systemMsgItem: {
+    backgroundColor: 'rgba(255, 170, 0, 0.03)',
+    borderColor: 'rgba(255, 170, 0, 0.1)',
+  },
+  msgHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  msgRoleText: {
+    fontSize: 10,
+    fontWeight: 'bold',
+  },
+  userRoleText: {
+    color: '#00FFFF',
+  },
+  assistantRoleText: {
+    color: '#FF00FF',
+  },
+  systemRoleText: {
+    color: '#FFAA00',
+  },
+  msgTimeText: {
+    color: 'rgba(255, 255, 255, 0.3)',
+    fontSize: 10,
+  },
+  msgContentText: {
+    color: '#E0E0E0',
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  noLogsText: {
+    color: 'rgba(255, 255, 255, 0.3)',
+    fontSize: 13,
+    fontStyle: 'italic',
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+  },
+  errorItem: {
+    backgroundColor: 'rgba(255, 0, 85, 0.03)',
+    borderColor: 'rgba(255, 0, 85, 0.15)',
+    borderWidth: 1,
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 8,
+  },
+  errorHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  errorTitleText: {
+    color: '#FF0055',
+    fontSize: 13,
+    fontWeight: 'bold',
+    flex: 1,
+    marginRight: 8,
+  },
+  errorTimeText: {
+    color: 'rgba(255, 255, 255, 0.3)',
+    fontSize: 10,
+  },
+  errorDetailsText: {
+    color: 'rgba(255, 255, 255, 0.5)',
+    fontSize: 11,
+    fontFamily: 'monospace',
+    backgroundColor: 'rgba(0, 0, 0, 0.2)',
+    padding: 6,
+    borderRadius: 4,
   },
 });

@@ -3,6 +3,7 @@ import { StyleSheet, View, Text, TouchableOpacity, ScrollView, SafeAreaView } fr
 import { useRobotStore } from '../store/useRobotStore';
 import { useEmotionStore } from '../store/useEmotionStore';
 import { useSettingsStore } from '../store/useSettingsStore';
+import { useConversationStore } from '../store/useConversationStore';
 import { UsbSerialService } from '../services/UsbSerialService';
 
 interface HomeScreenProps {
@@ -14,11 +15,13 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   const motorSpeed = useRobotStore((state) => state.motorSpeed);
   const currentEmotion = useEmotionStore((state) => state.currentEmotion);
   const initializeSettings = useSettingsStore((state) => state.initializeSettings);
+  const initializeLogs = useConversationStore((state) => state.initializeLogs);
   const ai = useSettingsStore((state) => state.ai);
 
   useEffect(() => {
     // Initialize settings from shared preferences
     initializeSettings();
+    initializeLogs();
     // Auto-probe USB devices on load
     UsbSerialService.autoConnect();
   }, []);

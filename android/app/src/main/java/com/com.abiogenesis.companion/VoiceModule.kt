@@ -116,6 +116,9 @@ class VoiceModule(private val reactContext: ReactApplicationContext) : ReactCont
                 override fun onError(utteranceId: String?) {
                     sendEvent("onTtsError", Arguments.createMap().apply { putString("id", utteranceId) })
                 }
+                override fun onStop(utteranceId: String?, interrupted: Boolean) {
+                    sendEvent("onTtsStopped", Arguments.createMap().apply { putString("id", utteranceId) })
+                }
             })
         } else {
             Log.e(tag, "Failed to initialize TextToSpeech")
@@ -209,10 +212,16 @@ class VoiceModule(private val reactContext: ReactApplicationContext) : ReactCont
     }
 
     @ReactMethod
-    fun speak(text: String, promise: Promise) {
+    fun speak(text: String, voiceName: String, promise: Promise) {
         UiThreadUtil.runOnUiThread {
             try {
                 tts?.setSpeechRate(speechRate)
+                if (voiceName.isNotEmpty()) {
+                    val match = tts?.voices?.firstOrNull { it.name == voiceName || it.locale.toString() == voiceName }
+                    if (match != null) {
+                        tts?.voice = match
+                    }
+                }
                 val params = Bundle().apply {
                     putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, volume)
                 }
@@ -221,6 +230,31 @@ class VoiceModule(private val reactContext: ReactApplicationContext) : ReactCont
                 promise.resolve(utteranceId)
             } catch (e: Exception) {
                 promise.reject("ERROR_TTS", e.message, e)
+            }
+        }
+    }
+
+    @ReactMethod
+    fun getAvailableVoices(promise: Promise) {
+        UiThreadUtil.runOnUiThread {
+            try {
+                val voices = tts?.voices
+                val list = Arguments.createArray()
+                if (voices != null) {
+                    for (voice in voices) {
+                        val map = Arguments.createMap().apply {
+                            putString("name", voice.name)
+                            putString("locale", voice.locale.toString())
+                            putInt("quality", voice.quality)
+                            putInt("latency", voice.latency)
+                            putBoolean("isNetwork", voice.isNetworkConnectionRequired)
+                        }
+                        list.pushMap(map)
+                    }
+                }
+                promise.resolve(list)
+            } catch (e: Exception) {
+                promise.reject("ERROR_GET_VOICES", e.message, e)
             }
         }
     }

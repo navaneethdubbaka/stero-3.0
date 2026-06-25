@@ -10,6 +10,8 @@ const voiceEventEmitter = new NativeEventEmitter(VoiceModule);
 class VoiceService {
   private static instance: VoiceService;
   private isListeningToEvents = false;
+  private isTransitioningToListen = false;
+  private isSpeakingState = false;
 
   private constructor() {}
 
@@ -40,17 +42,34 @@ class VoiceService {
     }
   }
 
+  private stripMarkdown(text: string): string {
+    return text
+      .replace(/[#*`_~]/g, '')                // remove markdown characters like #, *, `, _, ~
+      .replace(/\[([^\]]+)\]\([^\)]+\)/g, '$1') // replace [text](url) with text
+      .replace(/-\s+/g, '')                  // remove list bullet points
+      .replace(/\s+/g, ' ')                  // normalize spaces
+      .trim();
+  }
+
   public setupEventListeners() {
     if (this.isListeningToEvents) return;
 
     // 1. Wake word detected
     voiceEventEmitter.addListener('onWakeWordDetected', async (data) => {
       console.log('VoiceService: onWakeWordDetected', data);
+      if (this.isTransitioningToListen) return;
+      this.isTransitioningToListen = true;
+
       const voiceStore = useVoiceStore.getState();
       const emotionStore = useEmotionStore.getState();
 
       voiceStore.setWakeWordDetected(true);
       emotionStore.setEmotion('HAPPY');
+
+      if (this.isSpeakingState) {
+        console.log('VoiceService: Wake word detected during speech. Interrupting TTS...');
+        await this.stopSpeaking();
+      }
 
       // Releasing microphone by stopping wake word engine before starting speech recognition
       await this.stopWakeWordDetection();
@@ -72,6 +91,8 @@ class VoiceService {
     // 3. Speech recognition final result
     voiceEventEmitter.addListener('onSpeechRecognized', async (data) => {
       console.log('VoiceService: onSpeechRecognized', data);
+      this.isTransitioningToListen = false; // Reset flag
+
       const voiceStore = useVoiceStore.getState();
       const emotionStore = useEmotionStore.getState();
 
@@ -91,6 +112,8 @@ class VoiceService {
     // 4. Speech recognition error
     voiceEventEmitter.addListener('onSpeechError', async (error) => {
       console.warn('VoiceService: onSpeechError', error);
+      this.isTransitioningToListen = false; // Reset flag
+
       const voiceStore = useVoiceStore.getState();
       const emotionStore = useEmotionStore.getState();
 
@@ -105,22 +128,40 @@ class VoiceService {
     });
 
     // 5. TTS events
-    voiceEventEmitter.addListener('onTtsStarted', (data) => {
+    voiceEventEmitter.addListener('onTtsStarted', async (data) => {
       console.log('VoiceService: onTtsStarted', data);
+      this.isSpeakingState = true;
       useEmotionStore.getState().setEmotion('SPEAKING');
+      
+      // Keep wake word engine running during speech so the user can say "Sonic" to interrupt!
+      await VoiceModule.startWakeWordDetection();
     });
 
     voiceEventEmitter.addListener('onTtsFinished', async (data) => {
       console.log('VoiceService: onTtsFinished', data);
-      useEmotionStore.getState().setEmotion('IDLE');
-      // Restart wake word detection
-      await this.startWakeWordDetection();
+      this.isSpeakingState = false;
+      if (!this.isTransitioningToListen) {
+        useEmotionStore.getState().setEmotion('IDLE');
+        await this.startWakeWordDetection();
+      }
+    });
+
+    voiceEventEmitter.addListener('onTtsStopped', async (data) => {
+      console.log('VoiceService: onTtsStopped', data);
+      this.isSpeakingState = false;
+      if (!this.isTransitioningToListen) {
+        useEmotionStore.getState().setEmotion('IDLE');
+        await this.startWakeWordDetection();
+      }
     });
 
     voiceEventEmitter.addListener('onTtsError', async (data) => {
       console.warn('VoiceService: onTtsError', data);
-      useEmotionStore.getState().setEmotion('IDLE');
-      await this.startWakeWordDetection();
+      this.isSpeakingState = false;
+      if (!this.isTransitioningToListen) {
+        useEmotionStore.getState().setEmotion('IDLE');
+        await this.startWakeWordDetection();
+      }
     });
 
     this.isListeningToEvents = true;
@@ -179,7 +220,9 @@ class VoiceService {
     try {
       const settings = useSettingsStore.getState().voice;
       await VoiceModule.setVoiceSettings(settings.speechRate, settings.volume);
-      const utteranceId = await VoiceModule.speak(text);
+      const cleanText = this.stripMarkdown(text);
+      console.log(`VoiceService: Speaking: "${cleanText}" (Original: "${text}") using voice: "${settings.voice}"`);
+      const utteranceId = await VoiceModule.speak(cleanText, settings.voice || '');
       return utteranceId;
     } catch (e) {
       console.error('VoiceService: Failed to speak text', e);
@@ -240,6 +283,10 @@ class VoiceService {
 
     } catch (error: any) {
       console.error('VoiceService: LLM Error', error);
+      conversationStore.addError(
+        error.message || 'Unknown API/Network error',
+        `Base URL: ${settingsStore.ai.baseUrl}\nModel: ${settingsStore.ai.model}\nTime: ${new Date().toLocaleString()}`
+      );
       conversationStore.addMessage('system', `Error: ${error.message}`);
       await this.speak('Sorry, I had trouble connecting to my brain.');
     }
