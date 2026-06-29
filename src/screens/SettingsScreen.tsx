@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, ScrollView, TextInput, SafeAreaView, NativeModules } from 'react-native';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useConversationStore } from '../store/useConversationStore';
+import ModelDiscovery from '../llm/ModelDiscovery';
 
 const { VoiceModule } = NativeModules;
 
@@ -12,6 +13,23 @@ export const SettingsScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
   const { messages, apiErrors, clearConversation, clearErrors } = useConversationStore();
   const [activeTab, setActiveTab] = useState<SettingsTab>('AI');
   const [availableVoices, setAvailableVoices] = useState<any[]>([]);
+
+  const [discoveredModels, setDiscoveredModels] = useState<string[]>([]);
+  const [isFetchingModels, setIsFetchingModels] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+
+  const handleFetchModels = async () => {
+    setIsFetchingModels(true);
+    setFetchError(null);
+    try {
+      const list = await ModelDiscovery.discoverModels(ai.baseUrl, ai.apiKey);
+      setDiscoveredModels(list);
+    } catch (e: any) {
+      setFetchError(e.message || 'Failed to fetch models');
+    } finally {
+      setIsFetchingModels(false);
+    }
+  };
 
   useEffect(() => {
     if (activeTab === 'VOICE') {
@@ -50,14 +68,57 @@ export const SettingsScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
         secureTextEntry
       />
 
-      <Text style={styles.label}>Model Name</Text>
-      <TextInput
-        style={styles.input}
-        value={ai.model}
-        onChangeText={(val) => updateAISettings({ model: val })}
-        placeholder="gpt-4o-mini"
-        placeholderTextColor="#555"
-      />
+      <View style={styles.row}>
+        <Text style={styles.label}>Model Selection</Text>
+        <TouchableOpacity 
+          style={[styles.clearBtn, { backgroundColor: isFetchingModels ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 255, 255, 0.1)', borderColor: '#00FFFF' }]} 
+          onPress={handleFetchModels}
+          disabled={isFetchingModels}
+        >
+          <Text style={[styles.clearBtnText, { color: '#00FFFF' }]}>
+            {isFetchingModels ? 'Fetching...' : 'Fetch Models'}
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {fetchError && (
+        <Text style={[styles.errorTitleText, { marginBottom: 12 }]}>⚠ {fetchError}</Text>
+      )}
+
+      {discoveredModels.length > 0 ? (
+        <ScrollView style={[styles.voiceList, { maxHeight: 150 }]} nestedScrollEnabled>
+          {discoveredModels.map((m) => {
+            const isSelected = ai.model === m;
+            return (
+              <TouchableOpacity
+                key={m}
+                style={[
+                  styles.voiceItem,
+                  isSelected && styles.activeVoiceItem
+                ]}
+                onPress={() => updateAISettings({ model: m })}
+              >
+                <View style={styles.voiceItemRow}>
+                  <Text style={[styles.voiceNameText, isSelected && styles.activeVoiceNameText]}>
+                    {m}
+                  </Text>
+                  {isSelected && (
+                    <Text style={styles.selectedCheck}>✓</Text>
+                  )}
+                </View>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      ) : (
+        <TextInput
+          style={styles.input}
+          value={ai.model}
+          onChangeText={(val) => updateAISettings({ model: val })}
+          placeholder="gpt-4o-mini"
+          placeholderTextColor="#555"
+        />
+      )}
 
       <View style={styles.row}>
         <View style={styles.halfWidth}>

@@ -3,6 +3,9 @@ import { useVoiceStore } from '../store/useVoiceStore';
 import { useEmotionStore } from '../store/useEmotionStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useConversationStore } from '../store/useConversationStore';
+import MemoryService from '../memory/MemoryService';
+import ContextBuilder from '../llm/ContextBuilder';
+import ChatCompletionService from '../llm/ChatCompletionService';
 
 const { VoiceModule } = NativeModules;
 const voiceEventEmitter = new NativeEventEmitter(VoiceModule);
@@ -240,53 +243,30 @@ class VoiceService {
 
   private async handleUserUtterance(text: string): Promise<void> {
     const conversationStore = useConversationStore.getState();
-    const settingsStore = useSettingsStore.getState();
 
-    // Add user message to conversation history
+    // 1. Run memory heuristics on user input to extract any names or preferences
+    MemoryService.parseBasicHeuristics(text);
+
+    // 2. Build final prompt payload (combining system instructions, memory context, and history)
+    const messages = ContextBuilder.buildContext(text);
+
+    // 3. Add user message to conversation history
     conversationStore.addMessage('user', text);
 
     try {
-      // Prepare LLM message history and system prompt
-      const messages = [
-        { role: 'system', content: settingsStore.ai.systemPrompt },
-        ...conversationStore.messages.map((m) => ({ role: m.role, content: m.content })),
-      ];
+      console.log('VoiceService: Sending request to ChatCompletionService:', messages);
 
-      console.log('VoiceService: Sending request to LLM API:', messages);
-
-      const response = await fetch(`${settingsStore.ai.baseUrl}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${settingsStore.ai.apiKey}`,
-        },
-        body: JSON.stringify({
-          model: settingsStore.ai.model,
-          messages: messages,
-          temperature: settingsStore.ai.temperature,
-          max_tokens: settingsStore.ai.maxTokens,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`API Error: ${response.status} ${response.statusText}`);
-      }
-
-      const responseData = await response.json();
-      const assistantText = responseData.choices?.[0]?.message?.content || 'I encountered an error.';
+      // 4. Request completion
+      const assistantText = await ChatCompletionService.generateCompletion(messages);
       
-      // Add assistant message to history
+      // 5. Add assistant message to history
       conversationStore.addMessage('assistant', assistantText);
 
-      // Read assistant response out loud (TTS)
+      // 6. Read assistant response out loud (TTS)
       await this.speak(assistantText);
 
     } catch (error: any) {
       console.error('VoiceService: LLM Error', error);
-      conversationStore.addError(
-        error.message || 'Unknown API/Network error',
-        `Base URL: ${settingsStore.ai.baseUrl}\nModel: ${settingsStore.ai.model}\nTime: ${new Date().toLocaleString()}`
-      );
       conversationStore.addMessage('system', `Error: ${error.message}`);
       await this.speak('Sorry, I had trouble connecting to my brain.');
     }
