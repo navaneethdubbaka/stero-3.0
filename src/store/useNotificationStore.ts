@@ -10,12 +10,15 @@ export interface AppNotification {
 
 interface NotificationState {
   notifications: AppNotification[];
+  activeNotification: AppNotification | null;
   addNotification: (notification: Omit<AppNotification, 'id' | 'timestamp'>) => void;
+  setActiveNotification: (notification: AppNotification | null) => void;
   clearNotifications: () => void;
 }
 
 export const useNotificationStore = create<NotificationState>((set) => ({
   notifications: [],
+  activeNotification: null,
 
   addNotification: (notification) => {
     const newNotification: AppNotification = {
@@ -25,8 +28,10 @@ export const useNotificationStore = create<NotificationState>((set) => ({
     };
     set((state) => ({
       notifications: [newNotification, ...state.notifications].slice(0, 100), // Keep last 100
+      activeNotification: newNotification, // Set newly received notification as active
     }));
   },
 
-  clearNotifications: () => set({ notifications: [] }),
+  setActiveNotification: (notification) => set({ activeNotification: notification }),
+  clearNotifications: () => set({ notifications: [], activeNotification: null }),
 }));

@@ -11,11 +11,14 @@ class CompanionPackage : ReactPackage {
             SharedPrefsModule(reactContext),
             UsbSerialModule(reactContext),
             WebControllerModule(reactContext),
-            VoiceModule(reactContext)
+            VoiceModule(reactContext),
+            NotificationModule(reactContext)
         )
     }
 
     override fun createViewManagers(reactContext: ReactApplicationContext): List<ViewManager<*, *>> {
-        return emptyList()
+        return listOf(
+            VisionCameraViewManager()
+        )
     }
 }

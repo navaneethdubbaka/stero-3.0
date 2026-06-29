@@ -1,8 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, ScrollView, TouchableWithoutFeedback } from 'react-native';
+import { StyleSheet, View, Text, TouchableOpacity, ScrollView, TouchableWithoutFeedback, NativeModules, NativeEventEmitter } from 'react-native';
 import { FaceEngine } from '../face/FaceEngine';
 import { useEmotionStore, EmotionType, startBlinkingLoop, stopBlinkingLoop } from '../store/useEmotionStore';
+import { useSleepStore } from '../store/useSleepStore';
+import { useNotificationStore } from '../store/useNotificationStore';
 import VoiceService from '../voice/VoiceService';
+import SleepSystem from '../services/SleepSystem';
+import IdleBehaviorEngine from '../services/IdleBehaviorEngine';
+import { NotificationOverlay } from '../components/NotificationOverlay';
+
+const { NotificationModule } = NativeModules;
+const notificationEmitter = new NativeEventEmitter(NotificationModule);
 
 const EMOTIONS: EmotionType[] = [
   'IDLE',
@@ -31,22 +39,63 @@ export const FaceScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const setEmotion = useEmotionStore((state) => state.setEmotion);
   const isSpeaking = useEmotionStore((state) => state.isSpeaking);
   const setSpeaking = useEmotionStore((state) => state.setSpeaking);
+  const isAsleep = useSleepStore((state) => state.isAsleep);
+  
   const [showTray, setShowTray] = useState(false);
   const [menuVisible, setMenuVisible] = useState(false);
   const lastTap = useRef<number>(0);
 
-  // Start the blinking loop and voice service on mount, stop on unmount
   useEffect(() => {
+    // Start support systems
     startBlinkingLoop();
     VoiceService.startWakeWordDetection();
+    SleepSystem.start();
+    IdleBehaviorEngine.start();
+
+    // Listen to native Android notification broadcasts
+    let subscription: any;
+    try {
+      subscription = notificationEmitter.addListener('onNotificationReceived', (event) => {
+        console.log('FaceScreen: Received notification event:', event);
+        
+        let source: 'WhatsApp' | 'Telegram' | 'SMS' | 'Call' | 'Email' | 'Calendar' | 'System' = 'System';
+        const pkg = event.packageName.toLowerCase();
+        
+        if (pkg.includes('whatsapp')) source = 'WhatsApp';
+        else if (pkg.includes('telegram')) source = 'Telegram';
+        else if (pkg.includes('mms') || pkg.includes('sms') || pkg.includes('messaging')) source = 'SMS';
+        else if (pkg.includes('dialer') || pkg.includes('phone') || pkg.includes('telecom')) source = 'Call';
+
+        useNotificationStore.getState().addNotification({
+          source,
+          sender: event.title || 'Notification',
+          message: event.text || '',
+        });
+
+        // Report activity to wake up/reset sleep timer on notification
+        SleepSystem.reportActivity();
+      });
+    } catch (err) {
+      console.warn('FaceScreen: Failed to setup notification listener', err);
+    }
+
     return () => {
       stopBlinkingLoop();
       VoiceService.stopWakeWordDetection();
       VoiceService.stopSpeaking();
+      SleepSystem.stop();
+      IdleBehaviorEngine.stop();
+      if (subscription) {
+        subscription.remove();
+      }
     };
   }, []);
 
-  const handleDoubleTap = () => {
+  const handleScreenPress = () => {
+    // Report activity to reset timer or wake up
+    SleepSystem.reportActivity();
+
+    // Double tap triggers configuration menu
     const now = Date.now();
     const DOUBLE_TAP_DELAY = 300;
     if (now - lastTap.current < DOUBLE_TAP_DELAY) {
@@ -56,10 +105,18 @@ export const FaceScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   };
 
   return (
-    <TouchableWithoutFeedback onPress={handleDoubleTap}>
+    <TouchableWithoutFeedback onPress={handleScreenPress}>
       <View style={styles.container}>
         {/* Full-screen Face Canvas */}
         <FaceEngine />
+
+        {/* Floating Slide-In Notification Overlay */}
+        <NotificationOverlay />
+
+        {/* Screen Dimmer Layer for Sleep Mode */}
+        {isAsleep && (
+          <View style={styles.dimmingOverlay} pointerEvents="none" />
+        )}
 
         {/* Floating Toggle Buttons */}
         {menuVisible && (
@@ -225,5 +282,14 @@ const styles = StyleSheet.create({
   activeButtonText: {
     color: '#000000',
     fontWeight: 'bold',
+  },
+  dimmingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+    zIndex: 999,
   },
 });

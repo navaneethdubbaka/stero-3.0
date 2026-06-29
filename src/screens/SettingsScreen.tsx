@@ -4,7 +4,7 @@ import { useSettingsStore } from '../store/useSettingsStore';
 import { useConversationStore } from '../store/useConversationStore';
 import ModelDiscovery from '../llm/ModelDiscovery';
 
-const { VoiceModule } = NativeModules;
+const { VoiceModule, NotificationModule } = NativeModules;
 
 type SettingsTab = 'AI' | 'VOICE' | 'ROBOT' | 'DISPLAY' | 'LOGS';
 
@@ -17,6 +17,7 @@ export const SettingsScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
   const [discoveredModels, setDiscoveredModels] = useState<string[]>([]);
   const [isFetchingModels, setIsFetchingModels] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [hasNotificationPermission, setHasNotificationPermission] = useState<boolean | null>(null);
 
   const handleFetchModels = async () => {
     setIsFetchingModels(true);
@@ -30,6 +31,23 @@ export const SettingsScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
       setIsFetchingModels(false);
     }
   };
+
+  const checkNotificationPermission = async () => {
+    try {
+      const allowed = await NotificationModule.checkPermission();
+      setHasNotificationPermission(allowed);
+    } catch (e) {
+      console.warn('Failed to check notification permission', e);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'DISPLAY') {
+      checkNotificationPermission();
+      const interval = setInterval(checkNotificationPermission, 2000);
+      return () => clearInterval(interval);
+    }
+  }, [activeTab]);
 
   useEffect(() => {
     if (activeTab === 'VOICE') {
@@ -380,6 +398,21 @@ export const SettingsScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
           onPress={() => updateDisplaySettings({ sleepTimeout: Math.min(60, display.sleepTimeout + 1) })}
         >
           <Text style={styles.stepText}>+</Text>
+        </TouchableOpacity>
+      </View>
+
+      <Text style={styles.label}>Notification Access (For phone alerts)</Text>
+      <View style={styles.row}>
+        <Text style={[styles.valueDisplay, { flex: 1, textAlign: 'left', color: hasNotificationPermission ? '#00FF00' : '#FF3B30' }]}>
+          {hasNotificationPermission === null ? 'Checking...' : hasNotificationPermission ? '✓ GRANTED' : '✗ DENIED'}
+        </Text>
+        <TouchableOpacity 
+          style={[styles.clearBtn, { backgroundColor: hasNotificationPermission ? 'rgba(0, 255, 0, 0.1)' : 'rgba(255, 0, 0, 0.1)', borderColor: hasNotificationPermission ? '#00FF00' : '#FF3B30' }]} 
+          onPress={() => NotificationModule.requestPermission()}
+        >
+          <Text style={[styles.clearBtnText, { color: hasNotificationPermission ? '#00FF00' : '#FF3B30' }]}>
+            {hasNotificationPermission ? 'Configure' : 'Enable'}
+          </Text>
         </TouchableOpacity>
       </View>
     </View>

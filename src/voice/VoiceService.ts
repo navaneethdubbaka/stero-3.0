@@ -1,11 +1,12 @@
 import { NativeModules, NativeEventEmitter, PermissionsAndroid, Platform } from 'react-native';
 import { useVoiceStore } from '../store/useVoiceStore';
-import { useEmotionStore } from '../store/useEmotionStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useConversationStore } from '../store/useConversationStore';
 import MemoryService from '../memory/MemoryService';
 import ContextBuilder from '../llm/ContextBuilder';
 import ChatCompletionService from '../llm/ChatCompletionService';
+import EmotionRuleEngine from '../services/EmotionRuleEngine';
+import SleepSystem from '../services/SleepSystem';
 
 const { VoiceModule } = NativeModules;
 const voiceEventEmitter = new NativeEventEmitter(VoiceModule);
@@ -64,10 +65,10 @@ class VoiceService {
       this.isTransitioningToListen = true;
 
       const voiceStore = useVoiceStore.getState();
-      const emotionStore = useEmotionStore.getState();
 
       voiceStore.setWakeWordDetected(true);
-      emotionStore.setEmotion('HAPPY');
+      EmotionRuleEngine.triggerEvent('WAKE_WORD');
+      SleepSystem.reportActivity();
 
       if (this.isSpeakingState) {
         console.log('VoiceService: Wake word detected during speech. Interrupting TTS...');
@@ -79,9 +80,10 @@ class VoiceService {
       
       // Let the happy face stay on screen for a moment
       setTimeout(async () => {
-        emotionStore.setEmotion('LISTENING');
+        EmotionRuleEngine.triggerEvent('START_LISTENING');
         voiceStore.setListening(true);
         await this.startSpeechRecognition();
+        SleepSystem.reportActivity();
       }, 1200);
     });
 
@@ -89,6 +91,7 @@ class VoiceService {
     voiceEventEmitter.addListener('onSpeechPartialResult', (data) => {
       console.log('VoiceService: onSpeechPartialResult', data);
       useVoiceStore.getState().setRecognizedText(data.text);
+      SleepSystem.reportActivity();
     });
 
     // 3. Speech recognition final result
@@ -97,17 +100,17 @@ class VoiceService {
       this.isTransitioningToListen = false; // Reset flag
 
       const voiceStore = useVoiceStore.getState();
-      const emotionStore = useEmotionStore.getState();
 
       voiceStore.setRecognizedText(data.text);
       voiceStore.setListening(false);
+      SleepSystem.reportActivity();
       
       if (data.text && data.text.trim().length > 0) {
-        emotionStore.setEmotion('THINKING');
+        EmotionRuleEngine.triggerEvent('THINKING');
         await this.handleUserUtterance(data.text);
       } else {
         // Empty text, go back to idle and restart wake word
-        emotionStore.setEmotion('IDLE');
+        EmotionRuleEngine.triggerEvent('SPEAKING_END');
         await this.startWakeWordDetection();
       }
     });
@@ -118,14 +121,13 @@ class VoiceService {
       this.isTransitioningToListen = false; // Reset flag
 
       const voiceStore = useVoiceStore.getState();
-      const emotionStore = useEmotionStore.getState();
 
       voiceStore.setListening(false);
       
       // Show sad/confused look, then restart wake word detection
-      emotionStore.setEmotion('CONFUSED');
+      EmotionRuleEngine.triggerEvent('LISTENING_ERROR');
       setTimeout(async () => {
-        emotionStore.setEmotion('IDLE');
+        EmotionRuleEngine.triggerEvent('SPEAKING_END');
         await this.startWakeWordDetection();
       }, 2000);
     });
@@ -134,7 +136,8 @@ class VoiceService {
     voiceEventEmitter.addListener('onTtsStarted', async (data) => {
       console.log('VoiceService: onTtsStarted', data);
       this.isSpeakingState = true;
-      useEmotionStore.getState().setEmotion('SPEAKING');
+      EmotionRuleEngine.triggerEvent('SPEAKING');
+      SleepSystem.reportActivity();
       
       // Keep wake word engine running during speech so the user can say "Sonic" to interrupt!
       await VoiceModule.startWakeWordDetection();
@@ -144,8 +147,9 @@ class VoiceService {
       console.log('VoiceService: onTtsFinished', data);
       this.isSpeakingState = false;
       if (!this.isTransitioningToListen) {
-        useEmotionStore.getState().setEmotion('IDLE');
+        EmotionRuleEngine.triggerEvent('SPEAKING_END');
         await this.startWakeWordDetection();
+        SleepSystem.reportActivity();
       }
     });
 
@@ -153,8 +157,9 @@ class VoiceService {
       console.log('VoiceService: onTtsStopped', data);
       this.isSpeakingState = false;
       if (!this.isTransitioningToListen) {
-        useEmotionStore.getState().setEmotion('IDLE');
+        EmotionRuleEngine.triggerEvent('SPEAKING_END');
         await this.startWakeWordDetection();
+        SleepSystem.reportActivity();
       }
     });
 
@@ -162,8 +167,9 @@ class VoiceService {
       console.warn('VoiceService: onTtsError', data);
       this.isSpeakingState = false;
       if (!this.isTransitioningToListen) {
-        useEmotionStore.getState().setEmotion('IDLE');
+        EmotionRuleEngine.triggerEvent('SPEAKING_END');
         await this.startWakeWordDetection();
+        SleepSystem.reportActivity();
       }
     });
 

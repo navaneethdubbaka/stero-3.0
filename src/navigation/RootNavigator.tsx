@@ -5,6 +5,7 @@ import { FaceScreen } from '../screens/FaceScreen';
 import { ManualControlScreen } from '../screens/ManualControlScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
 import { SerialTestScreen } from '../screens/SerialTestScreen';
+import { VisionScreen } from '../screens/VisionScreen';
 
 export type RootStackParamList = {
   Home: undefined;
@@ -12,6 +13,7 @@ export type RootStackParamList = {
   ManualControl: undefined;
   Settings: undefined;
   SerialTest: undefined;
+  Vision: undefined;
 };
 
 const Stack = createStackNavigator<RootStackParamList>();
@@ -30,6 +32,7 @@ export const RootNavigator: React.FC = () => {
       <Stack.Screen name="ManualControl" component={ManualControlScreen} />
       <Stack.Screen name="Settings" component={SettingsScreen} />
       <Stack.Screen name="SerialTest" component={SerialTestScreen} />
+      <Stack.Screen name="Vision" component={VisionScreen} />
     </Stack.Navigator>
   );
 };

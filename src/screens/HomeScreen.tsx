@@ -24,6 +24,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
     initializeLogs();
     // Auto-probe USB devices on load
     UsbSerialService.autoConnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleRetryUsb = async () => {
@@ -93,6 +94,17 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
             <Text style={styles.cardIcon}>🔌</Text>
             <Text style={styles.cardTitle}>Serial Debugger</Text>
             <Text style={styles.cardDesc}>Test USB serial connection. Send commands and read responses</Text>
+          </TouchableOpacity>
+
+          {/* Card 5: Vision Tracking */}
+          <TouchableOpacity
+            style={styles.card}
+            onPress={() => navigation.navigate('Vision')}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.cardIcon}>👁️</Text>
+            <Text style={styles.cardTitle}>Vision Tracking</Text>
+            <Text style={styles.cardDesc}>Run MediaPipe body landmarks tracking and center-offset diagnostics</Text>
           </TouchableOpacity>
         </View>
 
