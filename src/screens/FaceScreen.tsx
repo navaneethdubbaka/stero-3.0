@@ -5,6 +5,8 @@ import { useEmotionStore, EmotionType, startBlinkingLoop, stopBlinkingLoop } fro
 import { useSleepStore } from '../store/useSleepStore';
 import { useNotificationStore } from '../store/useNotificationStore';
 import { useRobotStore } from '../store/useRobotStore';
+import { useFollowStore } from '../store/useFollowStore';
+import { FollowMode } from '../robot/FollowMode';
 import VoiceService from '../voice/VoiceService';
 import SleepSystem from '../services/SleepSystem';
 import IdleBehaviorEngine from '../services/IdleBehaviorEngine';
@@ -46,6 +48,9 @@ export const FaceScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const emergencyActive = useRobotStore((state) => state.emergencyActive);
   const emergencyStop = useRobotStore((state) => state.emergencyStop);
   const clearEmergency = useRobotStore((state) => state.clearEmergency);
+  const isConnected = useRobotStore((state) => state.isConnected);
+  const followEnabled = useFollowStore((state) => state.enabled);
+  const followStatus = useFollowStore((state) => state.status);
 
   const [showTray, setShowTray] = useState(false);
   const [menuVisible, setMenuVisible] = useState(false);
@@ -186,6 +191,24 @@ export const FaceScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
             >
               <Text style={styles.floatingButtonText}>{showTray ? '✕' : '⚙'}</Text>
             </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.floatingFollow,
+                followEnabled ? styles.floatingFollowOn : styles.floatingFollowOff,
+              ]}
+              onPress={() => {
+                if (FollowMode.isEnabled()) {
+                  FollowMode.stop();
+                } else if (isConnected) {
+                  FollowMode.start();
+                }
+              }}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.floatingEstopText}>
+                {followEnabled ? `FOLLOW ${followStatus}` : isConnected ? 'FOLLOW' : 'NO USB'}
+              </Text>
+            </TouchableOpacity>
           </>
         )}
 
@@ -306,6 +329,26 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.25)',
     zIndex: 10,
+  },
+  floatingFollow: {
+    position: 'absolute',
+    top: 72,
+    right: 20,
+    height: 36,
+    paddingHorizontal: 12,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    zIndex: 10,
+  },
+  floatingFollowOff: {
+    backgroundColor: 'rgba(0, 255, 200, 0.2)',
+    borderColor: 'rgba(0, 255, 200, 0.45)',
+  },
+  floatingFollowOn: {
+    backgroundColor: 'rgba(0, 255, 200, 0.45)',
+    borderColor: '#00FFC8',
   },
   floatingButtonText: {
     color: '#FFFFFF',

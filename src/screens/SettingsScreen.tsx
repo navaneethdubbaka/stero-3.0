@@ -328,6 +328,9 @@ export const SettingsScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
           <Text style={styles.stepText}>+</Text>
         </TouchableOpacity>
       </View>
+      <Text style={styles.helperText}>
+        Drives Follow distance intent (APPROACH / HOLD / TOO_CLOSE) vs soft meter estimate.
+      </Text>
 
       <Text style={styles.label}>Tracking Sensitivity ({Math.round(robot.trackingSensitivity * 100)}%)</Text>
       <View style={styles.stepper}>
@@ -345,6 +348,9 @@ export const SettingsScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
           <Text style={styles.stepText}>+</Text>
         </TouchableOpacity>
       </View>
+      <Text style={styles.helperText}>
+        Affects Vision deadband (CENTER zone) and Follow steer. Higher = tighter centering.
+      </Text>
 
       <Text style={styles.label}>Differential Drive (Protocol v2 M:)</Text>
       <View style={styles.row}>

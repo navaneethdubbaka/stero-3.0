@@ -110,7 +110,18 @@ class RobotControllerImpl {
     motorArbiter.claim('WEB', { kind: 'discrete', direction });
   }
 
-  /** Generic claim for future FOLLOW / DANCE modules. */
+  /** Claim or release FOLLOW based on direction (Page 3 FollowMode). */
+  requestFollowDrive(direction: MovementDirection): void {
+    this.start();
+    if (direction === 'S') {
+      motorArbiter.release('FOLLOW');
+      this.applyWinningCommand();
+      return;
+    }
+    motorArbiter.claim('FOLLOW', { kind: 'discrete', direction });
+  }
+
+  /** Generic claim for FOLLOW / DANCE modules. */
   claim(claimant: MotorClaimant, command: DriveCommand): void {
     this.start();
     motorArbiter.claim(claimant, command);

@@ -249,6 +249,34 @@ class VoiceService {
 
   private async handleUserUtterance(text: string): Promise<void> {
     const conversationStore = useConversationStore.getState();
+    const normalized = text.trim();
+
+    // Follow Mode voice hooks (before LLM) — Page 3
+    if (/stop\s+following|stop\s+follow/i.test(normalized)) {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { FollowMode } = require('../robot/FollowMode');
+      FollowMode.stop();
+      conversationStore.addMessage('user', text);
+      conversationStore.addMessage('assistant', 'Okay, I stopped following.');
+      await this.speak('Okay, I stopped following.');
+      return;
+    }
+    if (/^follow(\s+me)?[.!?]*$/i.test(normalized) || /\bfollow\s+me\b/i.test(normalized)) {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { FollowMode } = require('../robot/FollowMode');
+      const { useRobotStore } = require('../store/useRobotStore');
+      if (!useRobotStore.getState().isConnected) {
+        conversationStore.addMessage('user', text);
+        conversationStore.addMessage('assistant', 'I need USB connected to follow.');
+        await this.speak('I need USB connected to follow.');
+        return;
+      }
+      FollowMode.start();
+      conversationStore.addMessage('user', text);
+      conversationStore.addMessage('assistant', 'Okay, I will follow you. Open Vision if the camera is off.');
+      await this.speak('Okay, I will follow you.');
+      return;
+    }
 
     // 1. Run memory heuristics on user input to extract any names or preferences
     MemoryService.parseBasicHeuristics(text);

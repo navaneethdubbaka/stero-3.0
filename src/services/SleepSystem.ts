@@ -77,6 +77,17 @@ class SleepSystem {
     // Pause idle micro-animations while sleeping
     IdleBehaviorEngine.stop();
 
+    // Stop Follow so motors do not keep driving while asleep
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { FollowMode } = require('../robot/FollowMode');
+      if (FollowMode.isEnabled()) {
+        FollowMode.stop();
+      }
+    } catch (e) {
+      console.warn('SleepSystem: Failed to stop FollowMode', e);
+    }
+
     // Mark as asleep and change visual emotion
     useSleepStore.getState().setAsleep(true);
     useEmotionStore.getState().setEmotion('SLEEPY');

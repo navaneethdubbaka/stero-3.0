@@ -9,7 +9,12 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import Svg, { Circle, Line } from 'react-native-svg';
-import { VisionCameraView, Landmark, PoseDetectedEvent } from '../vision/VisionCameraView';
+import { VisionCameraView, Landmark } from '../vision/VisionCameraView';
+import { TrackingEngine } from '../vision/TrackingEngine';
+import { useTrackingStore } from '../store/useTrackingStore';
+import { useRobotStore } from '../store/useRobotStore';
+import { useFollowStore } from '../store/useFollowStore';
+import { FollowMode } from '../robot/FollowMode';
 
 interface VisionScreenProps {
   navigation: any;
@@ -17,12 +22,45 @@ interface VisionScreenProps {
 
 export const VisionScreen: React.FC<VisionScreenProps> = ({ navigation }) => {
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
-  const [trackingData, setTrackingData] = useState<PoseDetectedEvent | null>(null);
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
+
+  const personFound = useTrackingStore((s) => s.personFound);
+  const targetLocked = useTrackingStore((s) => s.targetLocked);
+  const offset = useTrackingStore((s) => s.offset);
+  const distanceZone = useTrackingStore((s) => s.distanceZone);
+  const shoulderWidth = useTrackingStore((s) => s.shoulderWidth);
+  const landmarks = useTrackingStore((s) => s.landmarks);
+  const deadband = useTrackingStore((s) => s.deadband);
+  const steerZone = useTrackingStore((s) => s.steerZone);
+  const estimatedDistanceM = useTrackingStore((s) => s.estimatedDistanceM);
+  const distanceIntent = useTrackingStore((s) => s.distanceIntent);
+  const confidence = useTrackingStore((s) => s.confidence);
+  const errorMsg = useTrackingStore((s) => s.error);
+  const isConnected = useRobotStore((s) => s.isConnected);
+  const followEnabled = useFollowStore((s) => s.enabled);
+  const followStatus = useFollowStore((s) => s.status);
+  const followCmd = useFollowStore((s) => s.lastCommand);
 
   useEffect(() => {
     requestCameraPermission();
+    return () => {
+      // Keep tracking alive while Follow is running (pose host may remount)
+      if (!FollowMode.isEnabled()) {
+        TrackingEngine.reset();
+      }
+    };
   }, []);
+
+  const toggleFollow = () => {
+    if (FollowMode.isEnabled()) {
+      FollowMode.stop();
+      return;
+    }
+    if (!isConnected) {
+      return;
+    }
+    FollowMode.start();
+  };
 
   const requestCameraPermission = async () => {
     if (Platform.OS === 'android') {
@@ -48,8 +86,7 @@ export const VisionScreen: React.FC<VisionScreenProps> = ({ navigation }) => {
   };
 
   const handlePoseDetected = (event: any) => {
-    const data: PoseDetectedEvent = event.nativeEvent;
-    setTrackingData(data);
+    TrackingEngine.ingest(event.nativeEvent);
   };
 
   const handleLayout = (event: any) => {
@@ -57,11 +94,8 @@ export const VisionScreen: React.FC<VisionScreenProps> = ({ navigation }) => {
     setDimensions({ width, height });
   };
 
-  // Helper to scale normalized coordinates to view dimensions
   const getXY = (landmark: Landmark) => {
     if (!landmark || dimensions.width === 0) return { x: 0, y: 0 };
-    // MediaPipe uses front camera which is mirrored natively.
-    // To align properly on screen, we can mirror the X axis: x = 1 - x
     const mirroredX = 1 - landmark.x;
     return {
       x: mirroredX * dimensions.width,
@@ -69,17 +103,14 @@ export const VisionScreen: React.FC<VisionScreenProps> = ({ navigation }) => {
     };
   };
 
-  // Render SVG skeleton connections
   const renderSkeleton = () => {
-    if (!trackingData || !trackingData.personFound || trackingData.landmarks.length === 0) {
+    if (!targetLocked || landmarks.length === 0) {
       return null;
     }
 
-    const { landmarks } = trackingData;
     const lines: any[] = [];
     const circles: any[] = [];
 
-    // Helper to add line between two landmark indexes
     const addLine = (i1: number, i2: number, key: string) => {
       if (landmarks[i1] && landmarks[i2]) {
         const p1 = getXY(landmarks[i1]);
@@ -99,27 +130,19 @@ export const VisionScreen: React.FC<VisionScreenProps> = ({ navigation }) => {
       }
     };
 
-    // Connect skeleton joints
-    // Shoulders
     addLine(11, 12, 'shoulders');
-    // Left Arm
     addLine(11, 13, 'left-upper-arm');
     addLine(13, 15, 'left-forearm');
-    // Right Arm
     addLine(12, 14, 'right-upper-arm');
     addLine(14, 16, 'right-forearm');
-    // Torso / Hips
     addLine(11, 23, 'left-torso');
     addLine(12, 24, 'right-torso');
     addLine(23, 24, 'hips');
-    // Left Leg
     addLine(23, 25, 'left-thigh');
     addLine(25, 27, 'left-calf');
-    // Right Leg
     addLine(24, 26, 'right-thigh');
     addLine(26, 28, 'right-calf');
 
-    // Render key joints as circles
     const jointsToDraw = [11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28];
     jointsToDraw.forEach((idx) => {
       if (landmarks[idx]) {
@@ -138,7 +161,6 @@ export const VisionScreen: React.FC<VisionScreenProps> = ({ navigation }) => {
       }
     });
 
-    // Render Face features (Nose 0)
     if (landmarks[0]) {
       const nosePt = getXY(landmarks[0]);
       circles.push(
@@ -185,27 +207,54 @@ export const VisionScreen: React.FC<VisionScreenProps> = ({ navigation }) => {
     );
   }
 
-  const personFound = trackingData?.personFound ?? false;
-  const offset = trackingData?.offset ?? 0.0;
-  const distanceZone = trackingData?.distanceZone ?? 'FAR';
-  const shoulderWidth = trackingData?.shoulderWidth ?? 0.0;
-  const errorMsg = trackingData?.error ?? null;
-
-  // Compute offset gauge percentage positioning (from -0.5 to 0.5 mapped to 0% to 100%)
   const gaugePercent = Math.max(0, Math.min(100, (offset + 0.5) * 100));
+  const deadbandLeftPct = Math.max(0, Math.min(100, (-deadband + 0.5) * 100));
+  const deadbandRightPct = Math.max(0, Math.min(100, (deadband + 0.5) * 100));
+
+  const statusLabel = targetLocked
+    ? personFound
+      ? 'TARGET LOCKED'
+      : 'HOLDING LOCK'
+    : 'SEARCHING...';
+
+  const steerLabel =
+    steerZone === 'CENTER'
+      ? 'Centered'
+      : steerZone === 'LEFT'
+      ? `Shift Left (${offset.toFixed(2)})`
+      : `Shift Right (+${offset.toFixed(2)})`;
 
   return (
     <View style={styles.container}>
-      {/* Sidebar Control Panel */}
       <View style={styles.sidebar}>
         <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
           <Text style={styles.backButtonText}>← Dashboard</Text>
         </TouchableOpacity>
 
         <Text style={styles.sidebarTitle}>VISION AI</Text>
-        <Text style={styles.sidebarDesc}>MediaPipe Pose Estimation</Text>
+        <Text style={styles.sidebarDesc}>TrackingEngine · MediaPipe Pose</Text>
 
-        {/* Telemetry Cards */}
+        <TouchableOpacity
+          style={[
+            styles.followBtn,
+            followEnabled ? styles.followBtnOn : styles.followBtnOff,
+            !isConnected && !followEnabled && styles.followBtnDisabled,
+          ]}
+          onPress={toggleFollow}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.followBtnText}>
+            {followEnabled ? '⏹ STOP FOLLOW' : '▶ START FOLLOW'}
+          </Text>
+          <Text style={styles.followStatusChip}>
+            {followEnabled
+              ? `${followStatus}${followCmd !== 'S' ? ` · ${followCmd}` : ''}`
+              : isConnected
+              ? 'OFF'
+              : 'USB REQUIRED'}
+          </Text>
+        </TouchableOpacity>
+
         <View style={styles.telemetryContainer}>
           <View style={styles.telemetryCard}>
             <Text style={styles.telemetryLabel}>TRACKING STATUS</Text>
@@ -213,11 +262,16 @@ export const VisionScreen: React.FC<VisionScreenProps> = ({ navigation }) => {
               <View
                 style={[
                   styles.statusDot,
-                  personFound ? styles.statusDotActive : styles.statusDotInactive,
+                  targetLocked ? styles.statusDotActive : styles.statusDotInactive,
                 ]}
               />
-              <Text style={[styles.statusValue, personFound ? styles.textGreen : styles.textRed]}>
-                {personFound ? 'TARGET LOCKED' : 'SEARCHING...'}
+              <Text
+                style={[
+                  styles.statusValue,
+                  targetLocked ? styles.textGreen : styles.textRed,
+                ]}
+              >
+                {statusLabel}
               </Text>
             </View>
           </View>
@@ -239,19 +293,37 @@ export const VisionScreen: React.FC<VisionScreenProps> = ({ navigation }) => {
           </View>
 
           <View style={styles.telemetryCard}>
-            <Text style={styles.telemetryLabel}>SHOULDER RATIO</Text>
+            <Text style={styles.telemetryLabel}>EST. DISTANCE / INTENT</Text>
             <Text style={[styles.telemetryValue, styles.textCyan]}>
-              {(shoulderWidth * 100).toFixed(1)}%
+              {estimatedDistanceM.toFixed(2)}m · {distanceIntent}
+            </Text>
+          </View>
+
+          <View style={styles.telemetryCard}>
+            <Text style={styles.telemetryLabel}>SHOULDER · CONF · DEADBAND</Text>
+            <Text style={[styles.telemetryValue, styles.textCyan]}>
+              {(shoulderWidth * 100).toFixed(1)}% · {(confidence * 100).toFixed(0)}% · ±
+              {deadband.toFixed(2)}
             </Text>
           </View>
         </View>
 
-        {/* Centering Gauge */}
         <View style={styles.gaugeCard}>
           <Text style={styles.telemetryLabel}>HORIZONTAL CENTER OFFSET</Text>
           <View style={styles.gaugeTrack}>
+            <View
+              style={[
+                styles.deadbandBand,
+                {
+                  left: `${deadbandLeftPct}%`,
+                  width: `${Math.max(0, deadbandRightPct - deadbandLeftPct)}%`,
+                },
+              ]}
+            />
             <View style={[styles.gaugeIndicator, { left: `${gaugePercent}%` }]} />
             <View style={styles.gaugeCenterLine} />
+            <View style={[styles.deadbandMarker, { left: `${deadbandLeftPct}%` }]} />
+            <View style={[styles.deadbandMarker, { left: `${deadbandRightPct}%` }]} />
           </View>
           <View style={styles.gaugeLabels}>
             <Text style={styles.gaugeLabel}>LEFT</Text>
@@ -259,15 +331,10 @@ export const VisionScreen: React.FC<VisionScreenProps> = ({ navigation }) => {
             <Text style={styles.gaugeLabel}>RIGHT</Text>
           </View>
           <Text style={styles.gaugeValueText}>
-            {offset > 0.05
-              ? `Shift Right (+${offset.toFixed(2)})`
-              : offset < -0.05
-              ? `Shift Left (${offset.toFixed(2)})`
-              : 'Centered'}
+            {steerZone} · {steerLabel}
           </Text>
         </View>
 
-        {/* Error Alert Box */}
         {errorMsg && (
           <View style={styles.errorCard}>
             <Text style={styles.errorCardTitle}>⚠ DIAGNOSTIC FAILURE</Text>
@@ -276,12 +343,10 @@ export const VisionScreen: React.FC<VisionScreenProps> = ({ navigation }) => {
         )}
       </View>
 
-      {/* Immersive Camera Feed View */}
       <View style={styles.cameraContainer} onLayout={handleLayout}>
         <VisionCameraView style={StyleSheet.absoluteFill} onPoseDetected={handlePoseDetected} />
         {renderSkeleton()}
 
-        {/* Sci-Fi HUD Crosshair Overlays */}
         <View style={styles.hudOverlay} pointerEvents="none">
           <View style={styles.hudCornerTopLeft} />
           <View style={styles.hudCornerTopRight} />
@@ -372,8 +437,39 @@ const styles = StyleSheet.create({
     color: '#8E8E9F',
     fontSize: 11,
     marginTop: 4,
-    marginBottom: 24,
+    marginBottom: 16,
     fontWeight: '600',
+  },
+  followBtn: {
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    marginBottom: 16,
+    borderWidth: 1,
+  },
+  followBtnOff: {
+    backgroundColor: 'rgba(0, 255, 200, 0.1)',
+    borderColor: 'rgba(0, 255, 200, 0.35)',
+  },
+  followBtnOn: {
+    backgroundColor: 'rgba(255, 60, 60, 0.15)',
+    borderColor: 'rgba(255, 60, 60, 0.4)',
+  },
+  followBtnDisabled: {
+    opacity: 0.45,
+  },
+  followBtnText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+  },
+  followStatusChip: {
+    color: '#8E8E9F',
+    fontSize: 10,
+    fontWeight: '700',
+    marginTop: 4,
+    letterSpacing: 1,
   },
   telemetryContainer: {
     gap: 12,
@@ -415,7 +511,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   telemetryValue: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: 'bold',
     letterSpacing: 0.5,
   },
@@ -445,6 +541,21 @@ const styles = StyleSheet.create({
     marginVertical: 12,
     position: 'relative',
   },
+  deadbandBand: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 255, 200, 0.2)',
+    borderRadius: 3,
+  },
+  deadbandMarker: {
+    position: 'absolute',
+    top: -4,
+    width: 2,
+    height: 14,
+    marginLeft: -1,
+    backgroundColor: 'rgba(0, 255, 200, 0.55)',
+  },
   gaugeIndicator: {
     width: 12,
     height: 12,
@@ -458,6 +569,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.8,
     shadowRadius: 4,
     elevation: 5,
+    zIndex: 2,
   },
   gaugeCenterLine: {
     width: 2,
