@@ -77,7 +77,6 @@ class EmotionRuleEngine {
       | 'SPEAKING'
       | 'SPEAKING_END'
       | 'NOTIFICATION'
-      | 'INACTIVITY'
       | 'SYSTEM_ERROR'
       | 'PERSON_FOUND'
   ) {
@@ -105,9 +104,6 @@ class EmotionRuleEngine {
         break;
       case 'NOTIFICATION':
         setEmotion('SURPRISED');
-        break;
-      case 'INACTIVITY':
-        setEmotion('SLEEPY');
         break;
       case 'SYSTEM_ERROR':
         setEmotion('SAD');

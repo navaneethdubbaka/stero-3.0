@@ -136,6 +136,15 @@ export const FaceScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
     };
   }, []);
 
+  // Pause blink loop while asleep (videos pause in FaceEngine)
+  useEffect(() => {
+    if (isAsleep) {
+      stopBlinkingLoop();
+    } else {
+      startBlinkingLoop();
+    }
+  }, [isAsleep]);
+
   const clearLongPress = () => {
     if (longPressTimer.current) {
       clearTimeout(longPressTimer.current);

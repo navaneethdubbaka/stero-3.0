@@ -81,4 +81,5 @@ export const stopBlinkingLoop = () => {
     clearTimeout(blinkTimer);
     blinkTimer = null;
   }
+  useEmotionStore.getState().setBlinking(false);
 };

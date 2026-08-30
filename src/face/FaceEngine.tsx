@@ -1,8 +1,12 @@
-import React, { useState, useEffect } from 'react';
-import { StyleSheet, View } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { StyleSheet, View, Animated } from 'react-native';
 import Video from 'react-native-video';
 import { useEmotionStore, EmotionType } from '../store/useEmotionStore';
+import { useSleepStore } from '../store/useSleepStore';
 import { GazeOverlay } from './GazeOverlay';
+
+const CROSSFADE_MS = 280;
+const LID_CLOSE_MS = 140;
 
 const emotionVideos: Record<EmotionType, any> = {
   IDLE: require('../assets/faces/normal.mp4'),
@@ -28,55 +32,125 @@ const emotionVideos: Record<EmotionType, any> = {
 
 export const FaceEngine: React.FC = () => {
   const currentEmotion = useEmotionStore((state) => state.currentEmotion);
+  const isBlinking = useEmotionStore((state) => state.isBlinking);
+  const isAsleep = useSleepStore((state) => state.isAsleep);
   const [activeReady, setActiveReady] = useState(false);
+
+  const idleOpacity = useRef(new Animated.Value(1)).current;
+  const emotionOpacity = useRef(new Animated.Value(0)).current;
+  const lidClose = useRef(new Animated.Value(0)).current;
 
   const isIdle = currentEmotion === 'IDLE';
   const activeVideoSource = emotionVideos[currentEmotion];
+  const allowBlink =
+    !isAsleep && currentEmotion !== 'SLEEPY' && currentEmotion !== 'DEAD';
 
   // When emotion changes, reset ready state for the active player
   useEffect(() => {
     if (!isIdle) {
       setActiveReady(false);
+      emotionOpacity.setValue(0);
+      idleOpacity.setValue(1);
+    } else {
+      Animated.parallel([
+        Animated.timing(idleOpacity, {
+          toValue: 1,
+          duration: CROSSFADE_MS,
+          useNativeDriver: true,
+        }),
+        Animated.timing(emotionOpacity, {
+          toValue: 0,
+          duration: CROSSFADE_MS,
+          useNativeDriver: true,
+        }),
+      ]).start();
     }
-  }, [currentEmotion, isIdle]);
+  }, [currentEmotion, isIdle, idleOpacity, emotionOpacity]);
+
+  // Crossfade when emotion player is ready
+  useEffect(() => {
+    if (!isIdle && activeReady) {
+      Animated.parallel([
+        Animated.timing(emotionOpacity, {
+          toValue: 1,
+          duration: CROSSFADE_MS,
+          useNativeDriver: true,
+        }),
+        Animated.timing(idleOpacity, {
+          toValue: 0,
+          duration: CROSSFADE_MS,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }
+  }, [activeReady, isIdle, emotionOpacity, idleOpacity]);
+
+  // Eyelid blink animation
+  useEffect(() => {
+    if (!allowBlink) {
+      lidClose.setValue(0);
+      return;
+    }
+    Animated.timing(lidClose, {
+      toValue: isBlinking ? 1 : 0,
+      duration: LID_CLOSE_MS,
+      useNativeDriver: false, // height anim
+    }).start();
+  }, [isBlinking, allowBlink, lidClose]);
+
+  const lidHeight = lidClose.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0%', '42%'],
+  });
+
+  const pauseIdle = (!isIdle && activeReady) || isAsleep;
+  const pauseEmotion = isAsleep;
 
   return (
     <View style={styles.container} pointerEvents="none">
-      {/* 1. Permanent Idle Player (Plays normal face continuously) */}
-      <Video
-        source={emotionVideos.IDLE}
-        style={[
-          styles.video,
-          { opacity: isIdle || !activeReady ? 1 : 0 },
-        ]}
-        resizeMode="contain"
-        repeat={true}
-        muted={true}
-        playInBackground={false}
-        disableFocus={true}
-        paused={!isIdle && activeReady}
-      />
-
-      {/* 2. Dynamic Emotion Player */}
-      {!isIdle && (
+      {/* 1. Permanent Idle Player */}
+      <Animated.View style={[styles.videoWrap, { opacity: idleOpacity }]}>
         <Video
-          source={activeVideoSource}
-          style={[
-            styles.video,
-            styles.absoluteVideo,
-            { opacity: activeReady ? 1 : 0 },
-          ]}
+          source={emotionVideos.IDLE}
+          style={styles.video}
           resizeMode="contain"
           repeat={true}
           muted={true}
           playInBackground={false}
           disableFocus={true}
-          onReadyForDisplay={() => setActiveReady(true)}
+          paused={pauseIdle}
         />
+      </Animated.View>
+
+      {/* 2. Dynamic Emotion Player */}
+      {!isIdle && (
+        <Animated.View
+          style={[styles.videoWrap, styles.absoluteVideo, { opacity: emotionOpacity }]}
+        >
+          <Video
+            source={activeVideoSource}
+            style={styles.video}
+            resizeMode="contain"
+            repeat={true}
+            muted={true}
+            playInBackground={false}
+            disableFocus={true}
+            paused={pauseEmotion}
+            onReadyForDisplay={() => setActiveReady(true)}
+          />
+        </Animated.View>
       )}
 
-      {/* 3. Social gaze pupils (tracking offset) */}
+      {/* 3. Social gaze pupils */}
       <GazeOverlay />
+
+      {/* 4. Eyelid blink overlay (Page 9) */}
+      {allowBlink && (
+        <View style={styles.lidLayer} pointerEvents="none">
+          <Animated.View style={[styles.lidTop, { height: lidHeight }]} />
+          <Animated.View style={[styles.lidBottom, { height: lidHeight }]} />
+        </View>
+      )}
     </View>
   );
 };
@@ -90,6 +164,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     overflow: 'hidden',
   },
+  videoWrap: {
+    width: '100%',
+    height: '100%',
+  },
   video: {
     width: '100%',
     height: '100%',
@@ -101,5 +179,27 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
+  },
+  lidLayer: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 20,
+  },
+  lidTop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: '#000000',
+    borderBottomLeftRadius: 8,
+    borderBottomRightRadius: 8,
+  },
+  lidBottom: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: '#000000',
+    borderTopLeftRadius: 8,
+    borderTopRightRadius: 8,
   },
 });

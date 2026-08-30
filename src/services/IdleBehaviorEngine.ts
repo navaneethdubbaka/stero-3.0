@@ -39,8 +39,8 @@ class IdleBehaviorEngine {
   private scheduleNextAction() {
     if (!this.isRunning) return;
 
-    // Trigger next micro-action every 20 to 40 seconds
-    const delay = Math.random() * 20000 + 20000;
+    // PRD face idle: micro-actions every 30–90 seconds
+    const delay = Math.random() * 60000 + 30000;
     this.timerId = setTimeout(() => {
       this.performRandomAction();
       this.scheduleNextAction();
