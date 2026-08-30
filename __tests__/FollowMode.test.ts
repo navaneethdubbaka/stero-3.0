@@ -27,6 +27,14 @@ jest.mock('../src/services/SleepSystem', () => ({
   default: { reportActivity: jest.fn(), start: jest.fn(), stop: jest.fn() },
 }));
 
+jest.mock('../src/robot/CompanionStateMachine', () => ({
+  CompanionStateMachine: {
+    canFollow: jest.fn(() => true),
+    getState: jest.fn(() => 'IDLE'),
+    dispatch: jest.fn(() => ({ ok: true, from: 'IDLE', to: 'FOLLOWING' })),
+  },
+}));
+
 const { RobotController } = require('../src/robot/RobotController');
 
 const applySnap = (overrides: Partial<TrackingSnapshot>) => {

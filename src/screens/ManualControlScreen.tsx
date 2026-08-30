@@ -3,6 +3,7 @@ import { StyleSheet, View, Text, TouchableOpacity, SafeAreaView, Clipboard, Plat
 import { useRobotStore, MovementDirection } from '../store/useRobotStore';
 import { UsbSerialService } from '../services/UsbSerialService';
 import { WebControllerService } from '../services/WebControllerService';
+import { CompanionStateMachine } from '../robot/CompanionStateMachine';
 
 export const ManualControlScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const {
@@ -43,11 +44,13 @@ export const ManualControlScreen: React.FC<{ navigation: any }> = ({ navigation 
 
   const handlePressIn = (direction: MovementDirection) => {
     if (emergencyActive) return;
+    CompanionStateMachine.dispatch('MANUAL_ON');
     requestManualDrive(direction);
   };
 
   const handlePressOut = () => {
     requestManualDrive('S');
+    CompanionStateMachine.dispatch('MANUAL_OFF');
   };
 
   const adjustSpeed = (amount: number) => {
@@ -130,7 +133,10 @@ export const ManualControlScreen: React.FC<{ navigation: any }> = ({ navigation 
 
               <TouchableOpacity
                 style={[styles.btn, styles.stopBtn, currentDirection === 'S' && styles.activeStopBtn]}
-                onPress={() => requestManualDrive('S')}
+                onPress={() => {
+                  requestManualDrive('S');
+                  CompanionStateMachine.dispatch('MANUAL_OFF');
+                }}
                 activeOpacity={0.6}
               >
                 <Text style={styles.stopText}>STOP</Text>

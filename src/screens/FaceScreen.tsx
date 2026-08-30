@@ -6,6 +6,7 @@ import { useSleepStore } from '../store/useSleepStore';
 import { useNotificationStore } from '../store/useNotificationStore';
 import { useRobotStore } from '../store/useRobotStore';
 import { useFollowStore } from '../store/useFollowStore';
+import { useCompanionStore } from '../store/useCompanionStore';
 import { FollowMode } from '../robot/FollowMode';
 import { VisionCameraView } from '../vision/VisionCameraView';
 import { TrackingEngine } from '../vision/TrackingEngine';
@@ -56,6 +57,7 @@ export const FaceScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const isConnected = useRobotStore((state) => state.isConnected);
   const followEnabled = useFollowStore((state) => state.enabled);
   const followStatus = useFollowStore((state) => state.status);
+  const companionState = useCompanionStore((state) => state.state);
 
   const [showTray, setShowTray] = useState(false);
   const [menuVisible, setMenuVisible] = useState(false);
@@ -199,6 +201,12 @@ export const FaceScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
           </View>
         )}
 
+        <View style={styles.companionChipWrap} pointerEvents="none">
+          <View style={[styles.companionChip, menuVisible && styles.companionChipActive]}>
+            <Text style={styles.companionChipText}>{companionState}</Text>
+          </View>
+        </View>
+
         {menuVisible && (
           <>
             <TouchableOpacity
@@ -308,6 +316,32 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#000000',
+  },
+  companionChipWrap: {
+    position: 'absolute',
+    top: 10,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    zIndex: 5,
+  },
+  companionChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+  },
+  companionChipActive: {
+    backgroundColor: 'rgba(255, 255, 255, 0.16)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.22)',
+  },
+  companionChipText: {
+    color: 'rgba(255, 255, 255, 0.55)',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.8,
+    textAlign: 'center',
   },
   hiddenCamera: {
     position: 'absolute',

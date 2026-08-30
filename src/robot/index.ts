@@ -11,3 +11,10 @@ export { MotorArbiter, motorArbiter } from './MotorArbiter';
 export { RobotController } from './RobotController';
 export { computeFollowCommand } from './NavigationEngine';
 export { FollowMode, ANTI_SPIN_MS } from './FollowMode';
+export type {
+  CompanionState,
+  CompanionEvent,
+  TransitionRecord,
+  DispatchResult,
+} from './companionTypes';
+export { CompanionStateMachine } from './CompanionStateMachine';

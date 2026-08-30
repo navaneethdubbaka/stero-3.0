@@ -1,4 +1,13 @@
 import { useEmotionStore } from '../store/useEmotionStore';
+import type { CompanionState } from '../robot/companionTypes';
+
+const PIPELINE_EMOTIONS = new Set([
+  'LISTENING',
+  'THINKING',
+  'SPEAKING',
+  'SLEEPY',
+  'SAD',
+]);
 
 class EmotionRuleEngine {
   private static instance: EmotionRuleEngine;
@@ -13,7 +22,51 @@ class EmotionRuleEngine {
   }
 
   /**
-   * Translates application events into visual emotion updates on the robot face.
+   * Drive face emotion from companion life-cycle transitions.
+   * FOLLOWING leaves gaze/idle as-is; IDLE only clears pipeline emotions
+   * (does not clobber wink / ALERT micro-idle overlays).
+   */
+  public onCompanionState(state: CompanionState): void {
+    const { setEmotion, currentEmotion } = useEmotionStore.getState();
+
+    switch (state) {
+      case 'SLEEP':
+        setEmotion('SLEEPY');
+        break;
+      case 'LISTENING':
+        setEmotion('LISTENING');
+        break;
+      case 'THINKING':
+        setEmotion('THINKING');
+        break;
+      case 'SPEAKING':
+        setEmotion('SPEAKING');
+        break;
+      case 'ERROR':
+        setEmotion('SAD');
+        break;
+      case 'MANUAL':
+        setEmotion('ALERT');
+        break;
+      case 'DANCING':
+        setEmotion('EXCITED');
+        break;
+      case 'FOLLOWING':
+        // Keep IDLE / gaze overlays — no emotion change
+        break;
+      case 'IDLE':
+        if (PIPELINE_EMOTIONS.has(currentEmotion)) {
+          setEmotion('IDLE');
+        }
+        break;
+      default:
+        break;
+    }
+  }
+
+  /**
+   * Overlay / one-shot emotions (not companion states).
+   * Pipeline voice/sleep emotions should prefer CompanionStateMachine.
    */
   public triggerEvent(
     event:

@@ -4,6 +4,7 @@ import { useRobotStore } from '../store/useRobotStore';
 import { useEmotionStore } from '../store/useEmotionStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useConversationStore } from '../store/useConversationStore';
+import { useCompanionStore } from '../store/useCompanionStore';
 import { UsbSerialService } from '../services/UsbSerialService';
 import { RobotController } from '../robot/RobotController';
 interface HomeScreenProps {
@@ -18,6 +19,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   const emergencyStop = useRobotStore((state) => state.emergencyStop);
   const clearEmergency = useRobotStore((state) => state.clearEmergency);
   const currentEmotion = useEmotionStore((state) => state.currentEmotion);
+  const companionState = useCompanionStore((state) => state.state);
   const initializeSettings = useSettingsStore((state) => state.initializeSettings);
   const initializeLogs = useConversationStore((state) => state.initializeLogs);
   const ai = useSettingsStore((state) => state.ai);
@@ -77,6 +79,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
             {emergencyActive ? ' · EMERGENCY LATCHED' : ''}
             {' · '}Speed {motorSpeed}
             {robot.useDifferentialDrive ? ' · Diff ON' : ''}
+            {' · '}Companion: {companionState}
           </Text>
         </View>
 

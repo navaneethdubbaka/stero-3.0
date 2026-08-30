@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, ScrollView, TextInput, SafeAreaView, NativeModules } from 'react-native';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useConversationStore } from '../store/useConversationStore';
+import { useCompanionStore } from '../store/useCompanionStore';
 import ModelDiscovery from '../llm/ModelDiscovery';
 
 const { VoiceModule, NotificationModule } = NativeModules;
@@ -11,6 +12,7 @@ type SettingsTab = 'AI' | 'VOICE' | 'ROBOT' | 'DISPLAY' | 'LOGS';
 export const SettingsScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const { ai, voice, robot, display, updateAISettings, updateVoiceSettings, updateRobotSettings, updateDisplaySettings } = useSettingsStore();
   const { messages, apiErrors, clearConversation, clearErrors } = useConversationStore();
+  const companionHistory = useCompanionStore((state) => state.history);
   const [activeTab, setActiveTab] = useState<SettingsTab>('AI');
   const [availableVoices, setAvailableVoices] = useState<any[]>([]);
 
@@ -449,8 +451,37 @@ export const SettingsScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
 
   const renderLogsTab = () => (
     <View style={styles.tabContent}>
-      {/* 1. Conversation Logs */}
+      {/* 0. Companion state transitions */}
       <View style={styles.sectionHeaderRow}>
+        <Text style={styles.sectionTitle}>Companion State</Text>
+      </View>
+      {companionHistory.length > 0 ? (
+        <ScrollView style={styles.logContainer} nestedScrollEnabled>
+          {[...companionHistory].reverse().map((rec, idx) => {
+            const time = new Date(rec.at).toLocaleTimeString([], {
+              hour: '2-digit',
+              minute: '2-digit',
+              second: '2-digit',
+            });
+            return (
+              <View key={`${rec.at}-${idx}`} style={[styles.msgItem, styles.systemMsgItem]}>
+                <View style={styles.msgHeader}>
+                  <Text style={[styles.msgRoleText, styles.systemRoleText]}>{rec.event}</Text>
+                  <Text style={styles.msgTimeText}>{time}</Text>
+                </View>
+                <Text style={styles.msgContentText}>
+                  {rec.from} → {rec.to}
+                </Text>
+              </View>
+            );
+          })}
+        </ScrollView>
+      ) : (
+        <Text style={styles.noLogsText}>No companion transitions yet.</Text>
+      )}
+
+      {/* 1. Conversation Logs */}
+      <View style={[styles.sectionHeaderRow, { marginTop: 24 }]}>
         <Text style={styles.sectionTitle}>Conversation History</Text>
         {messages.length > 0 && (
           <TouchableOpacity style={styles.clearBtn} onPress={clearConversation}>

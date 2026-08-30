@@ -35,6 +35,22 @@ class FollowModeImpl {
       this.tick();
       return;
     }
+
+    // Companion arbitration: reject FOLLOW while SLEEP / MANUAL / DANCING
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { CompanionStateMachine } = require('./CompanionStateMachine');
+    if (!CompanionStateMachine.canFollow()) {
+      console.log(
+        `[FollowMode] start blocked — companion=${CompanionStateMachine.getState()}`
+      );
+      return;
+    }
+    const claim = CompanionStateMachine.dispatch('FOLLOW_START');
+    if (!claim.ok) {
+      console.log(`[FollowMode] FOLLOW_START rejected: ${claim.reason}`);
+      return;
+    }
+
     this.enabled = true;
     this.antiSpinLatched = false;
     this.rotateStartedAt = null;
@@ -78,6 +94,15 @@ class FollowModeImpl {
     this.lastCommand = 'S';
     RobotController.requestFollowDrive('S');
     useFollowStore.getState().reset();
+
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { CompanionStateMachine } = require('./CompanionStateMachine');
+      CompanionStateMachine.dispatch('FOLLOW_STOP');
+    } catch (e) {
+      console.warn('[FollowMode] companion FOLLOW_STOP failed', e);
+    }
+
     console.log('[FollowMode] stopped');
   }
 

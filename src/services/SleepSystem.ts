@@ -1,7 +1,7 @@
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useSleepStore } from '../store/useSleepStore';
-import { useEmotionStore } from '../store/useEmotionStore';
 import IdleBehaviorEngine from './IdleBehaviorEngine';
+import { CompanionStateMachine } from '../robot/CompanionStateMachine';
 
 class SleepSystem {
   private static instance: SleepSystem;
@@ -88,16 +88,16 @@ class SleepSystem {
       console.warn('SleepSystem: Failed to stop FollowMode', e);
     }
 
-    // Mark as asleep and change visual emotion
+    // Mark as asleep; companion machine drives SLEEPY emotion
     useSleepStore.getState().setAsleep(true);
-    useEmotionStore.getState().setEmotion('SLEEPY');
+    CompanionStateMachine.dispatch('SLEEP');
   }
 
   private wakeUp() {
     console.log('SleepSystem: Activity detected. Waking up.');
     
     useSleepStore.getState().setAsleep(false);
-    useEmotionStore.getState().setEmotion('IDLE');
+    CompanionStateMachine.dispatch('WAKE');
     
     // Resume idle animations
     IdleBehaviorEngine.start();

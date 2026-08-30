@@ -7,6 +7,7 @@ import ContextBuilder from '../llm/ContextBuilder';
 import ChatCompletionService from '../llm/ChatCompletionService';
 import EmotionRuleEngine from '../services/EmotionRuleEngine';
 import SleepSystem from '../services/SleepSystem';
+import { CompanionStateMachine } from '../robot/CompanionStateMachine';
 
 const { VoiceModule } = NativeModules;
 const voiceEventEmitter = new NativeEventEmitter(VoiceModule);
@@ -68,6 +69,7 @@ class VoiceService {
 
       voiceStore.setWakeWordDetected(true);
       EmotionRuleEngine.triggerEvent('WAKE_WORD');
+      CompanionStateMachine.dispatch('WAKE');
       SleepSystem.reportActivity();
 
       if (this.isSpeakingState) {
@@ -80,7 +82,7 @@ class VoiceService {
       
       // Let the happy face stay on screen for a moment
       setTimeout(async () => {
-        EmotionRuleEngine.triggerEvent('START_LISTENING');
+        CompanionStateMachine.dispatch('LISTEN_START');
         voiceStore.setListening(true);
         await this.startSpeechRecognition();
         SleepSystem.reportActivity();
@@ -106,11 +108,11 @@ class VoiceService {
       SleepSystem.reportActivity();
       
       if (data.text && data.text.trim().length > 0) {
-        EmotionRuleEngine.triggerEvent('THINKING');
+        CompanionStateMachine.dispatch('THINK');
         await this.handleUserUtterance(data.text);
       } else {
         // Empty text, go back to idle and restart wake word
-        EmotionRuleEngine.triggerEvent('SPEAKING_END');
+        CompanionStateMachine.dispatch('SPEAK_END');
         await this.startWakeWordDetection();
       }
     });
@@ -124,10 +126,8 @@ class VoiceService {
 
       voiceStore.setListening(false);
       
-      // Show sad/confused look, then restart wake word detection
-      EmotionRuleEngine.triggerEvent('LISTENING_ERROR');
+      CompanionStateMachine.dispatch('LISTEN_ERROR');
       setTimeout(async () => {
-        EmotionRuleEngine.triggerEvent('SPEAKING_END');
         await this.startWakeWordDetection();
       }, 2000);
     });
@@ -136,7 +136,7 @@ class VoiceService {
     voiceEventEmitter.addListener('onTtsStarted', async (data) => {
       console.log('VoiceService: onTtsStarted', data);
       this.isSpeakingState = true;
-      EmotionRuleEngine.triggerEvent('SPEAKING');
+      CompanionStateMachine.dispatch('SPEAK');
       SleepSystem.reportActivity();
       
       // Keep wake word engine running during speech so the user can say "Sonic" to interrupt!
@@ -147,7 +147,7 @@ class VoiceService {
       console.log('VoiceService: onTtsFinished', data);
       this.isSpeakingState = false;
       if (!this.isTransitioningToListen) {
-        EmotionRuleEngine.triggerEvent('SPEAKING_END');
+        CompanionStateMachine.dispatch('SPEAK_END');
         await this.startWakeWordDetection();
         SleepSystem.reportActivity();
       }
@@ -157,7 +157,7 @@ class VoiceService {
       console.log('VoiceService: onTtsStopped', data);
       this.isSpeakingState = false;
       if (!this.isTransitioningToListen) {
-        EmotionRuleEngine.triggerEvent('SPEAKING_END');
+        CompanionStateMachine.dispatch('SPEAK_END');
         await this.startWakeWordDetection();
         SleepSystem.reportActivity();
       }
@@ -167,7 +167,7 @@ class VoiceService {
       console.warn('VoiceService: onTtsError', data);
       this.isSpeakingState = false;
       if (!this.isTransitioningToListen) {
-        EmotionRuleEngine.triggerEvent('SPEAKING_END');
+        CompanionStateMachine.dispatch('SPEAK_END');
         await this.startWakeWordDetection();
         SleepSystem.reportActivity();
       }
@@ -301,6 +301,7 @@ class VoiceService {
 
     } catch (error: any) {
       console.error('VoiceService: LLM Error', error);
+      CompanionStateMachine.dispatch('ERROR');
       conversationStore.addMessage('system', `Error: ${error.message}`);
       await this.speak('Sorry, I had trouble connecting to my brain.');
     }
