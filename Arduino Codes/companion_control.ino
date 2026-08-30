@@ -83,6 +83,33 @@ void processCommand(String command) {
       motorRight.setSpeed(motorSpeed);
     }
   }
+  // Protocol v2 differential PWM (e.g. "M:180,120") — forward directions, per-side speed
+  else if (command.startsWith("M:")) {
+    int commaIndex = command.indexOf(',');
+    if (commaIndex > 2) {
+      int leftSpeed = command.substring(2, commaIndex).toInt();
+      int rightSpeed = command.substring(commaIndex + 1).toInt();
+      if (leftSpeed < 0) leftSpeed = 0;
+      if (leftSpeed > 255) leftSpeed = 255;
+      if (rightSpeed < 0) rightSpeed = 0;
+      if (rightSpeed > 255) rightSpeed = 255;
+      applyDifferential(leftSpeed, rightSpeed);
+    }
+  }
+}
+
+void applyDifferential(int leftSpeed, int rightSpeed) {
+  // Same run directions as moveForward(); steer via asymmetric PWM only.
+  if (leftSpeed == 0 && rightSpeed == 0) {
+    stopMotors();
+    return;
+  }
+
+  motorsStopped = false;
+  motorLeft.setSpeed(leftSpeed);
+  motorRight.setSpeed(rightSpeed);
+  motorLeft.run(BACKWARD);
+  motorRight.run(BACKWARD);
 }
 
 void moveForward() {

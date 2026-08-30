@@ -1,5 +1,6 @@
 import { NativeModules, Platform, DeviceEventEmitter } from 'react-native';
 import { useRobotStore, MovementDirection } from '../store/useRobotStore';
+import { RobotController } from '../robot/RobotController';
 
 const WebController = NativeModules.WebController;
 
@@ -52,6 +53,8 @@ export class WebControllerService {
       this.isRunningState = false;
       this.serverUrl = null;
       this.removeEventListener();
+      // Release WEB claim when server stops
+      RobotController.release('WEB');
       console.log('[WebControllerService] Web server stopped');
     } catch (e) {
       console.error('[WebControllerService] Failed to stop server:', e);
@@ -84,12 +87,21 @@ export class WebControllerService {
 
       const store = useRobotStore.getState();
 
-      if (speed !== undefined && speed !== store.motorSpeed) {
-        store.setMotorSpeed(speed);
+      if (store.emergencyActive) {
+        // Ignore motion while E-stop latched; still allow speed sync for after clear
+        if (speed !== undefined && speed !== store.motorSpeed) {
+          RobotController.setSpeed(speed);
+        }
+        this.syncState();
+        return;
       }
 
-      if (command && command !== store.currentDirection) {
-        store.setDirection(command as MovementDirection);
+      if (speed !== undefined && speed !== store.motorSpeed) {
+        RobotController.setSpeed(speed);
+      }
+
+      if (command) {
+        RobotController.requestWebDrive(command as MovementDirection);
       }
 
       // Sync state back to confirm

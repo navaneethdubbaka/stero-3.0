@@ -1,50 +1,73 @@
 import { create } from 'zustand';
-import { UsbSerialService } from '../services/UsbSerialService';
+import { RobotController } from '../robot/RobotController';
+import type { MotorClaimant, MovementDirection } from '../robot/types';
 
-export type MovementDirection = 'F' | 'B' | 'L' | 'R' | 'S';
+export type { MovementDirection } from '../robot/types';
 
 interface RobotState {
   isConnected: boolean;
   motorSpeed: number;
   currentDirection: MovementDirection;
-  heartbeatInterval: any; // Reference to the periodic command interval
+  activeClaimant: MotorClaimant | null;
+  emergencyActive: boolean;
   setConnected: (connected: boolean) => void;
+  mirrorMotorState: (partial: {
+    motorSpeed?: number;
+    currentDirection?: MovementDirection;
+    activeClaimant?: MotorClaimant | null;
+    emergencyActive?: boolean;
+  }) => void;
+  /** MANUAL claimant — use from ManualControlScreen */
+  requestManualDrive: (direction: MovementDirection) => void;
+  /** WEB claimant — use from WebControllerService */
+  requestWebDrive: (direction: MovementDirection) => void;
   setMotorSpeed: (speed: number) => void;
+  emergencyStop: () => void;
+  clearEmergency: () => void;
+  /** @deprecated Prefer requestManualDrive / requestWebDrive — kept for thin compatibility */
   setDirection: (direction: MovementDirection) => void;
 }
 
-export const useRobotStore = create<RobotState>((set, get) => ({
+export const useRobotStore = create<RobotState>((set) => ({
   isConnected: false,
   motorSpeed: 150,
   currentDirection: 'S',
-  heartbeatInterval: null,
+  activeClaimant: null,
+  emergencyActive: false,
 
   setConnected: (connected) => set({ isConnected: connected }),
-  setMotorSpeed: (speed) => {
-    const validSpeed = Math.max(0, Math.min(255, speed));
-    set({ motorSpeed: validSpeed });
-    // Update the speed on the Arduino
-    UsbSerialService.write(`V:${validSpeed}\n`);
+
+  mirrorMotorState: (partial) => set((state) => ({ ...state, ...partial })),
+
+  requestManualDrive: (direction) => {
+    RobotController.requestManualDrive(direction);
   },
+
+  requestWebDrive: (direction) => {
+    RobotController.requestWebDrive(direction);
+  },
+
+  setMotorSpeed: (speed) => {
+    RobotController.setSpeed(speed);
+  },
+
+  emergencyStop: () => {
+    RobotController.emergencyStop();
+  },
+
+  clearEmergency: () => {
+    RobotController.clearEmergency();
+  },
+
+  // Compatibility: treat anonymous setDirection as MANUAL
   setDirection: (direction) => {
-    // Clear any existing heartbeat interval
-    const existingInterval = get().heartbeatInterval;
-    if (existingInterval) {
-      clearInterval(existingInterval);
-      set({ heartbeatInterval: null });
-    }
-
-    set({ currentDirection: direction });
-    
-    // Send the command immediately
-    UsbSerialService.write(`${direction}\n`);
-
-    // If we are moving (not stopping), establish a 1-second heartbeat to reset the Arduino's watchdog
-    if (direction !== 'S') {
-      const interval = setInterval(() => {
-        UsbSerialService.write(`${direction}\n`);
-      }, 1000);
-      set({ heartbeatInterval: interval });
-    }
+    RobotController.requestManualDrive(direction);
   },
 }));
+
+// Wire controller ↔ store mirror once at module load
+RobotController.attachStore({
+  setConnected: (connected) => useRobotStore.getState().setConnected(connected),
+  mirrorMotorState: (partial) => useRobotStore.getState().mirrorMotorState(partial),
+});
+RobotController.start();

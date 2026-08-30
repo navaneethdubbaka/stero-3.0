@@ -4,6 +4,7 @@ import { FaceEngine } from '../face/FaceEngine';
 import { useEmotionStore, EmotionType, startBlinkingLoop, stopBlinkingLoop } from '../store/useEmotionStore';
 import { useSleepStore } from '../store/useSleepStore';
 import { useNotificationStore } from '../store/useNotificationStore';
+import { useRobotStore } from '../store/useRobotStore';
 import VoiceService from '../voice/VoiceService';
 import SleepSystem from '../services/SleepSystem';
 import IdleBehaviorEngine from '../services/IdleBehaviorEngine';
@@ -34,33 +35,38 @@ const EMOTIONS: EmotionType[] = [
   'DEAD',
 ];
 
+const LONG_PRESS_MS = 600;
+
 export const FaceScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const currentEmotion = useEmotionStore((state) => state.currentEmotion);
   const setEmotion = useEmotionStore((state) => state.setEmotion);
   const isSpeaking = useEmotionStore((state) => state.isSpeaking);
   const setSpeaking = useEmotionStore((state) => state.setSpeaking);
   const isAsleep = useSleepStore((state) => state.isAsleep);
-  
+  const emergencyActive = useRobotStore((state) => state.emergencyActive);
+  const emergencyStop = useRobotStore((state) => state.emergencyStop);
+  const clearEmergency = useRobotStore((state) => state.clearEmergency);
+
   const [showTray, setShowTray] = useState(false);
   const [menuVisible, setMenuVisible] = useState(false);
   const lastTap = useRef<number>(0);
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressFired = useRef(false);
 
   useEffect(() => {
-    // Start support systems
     startBlinkingLoop();
     VoiceService.startWakeWordDetection();
     SleepSystem.start();
     IdleBehaviorEngine.start();
 
-    // Listen to native Android notification broadcasts
     let subscription: any;
     try {
       subscription = notificationEmitter.addListener('onNotificationReceived', (event) => {
         console.log('FaceScreen: Received notification event:', event);
-        
+
         let source: 'WhatsApp' | 'Telegram' | 'SMS' | 'Call' | 'Email' | 'Calendar' | 'System' = 'System';
         const pkg = event.packageName.toLowerCase();
-        
+
         if (pkg.includes('whatsapp')) source = 'WhatsApp';
         else if (pkg.includes('telegram')) source = 'Telegram';
         else if (pkg.includes('mms') || pkg.includes('sms') || pkg.includes('messaging')) source = 'SMS';
@@ -72,7 +78,6 @@ export const FaceScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
           message: event.text || '',
         });
 
-        // Report activity to wake up/reset sleep timer on notification
         SleepSystem.reportActivity();
       });
     } catch (err) {
@@ -88,14 +93,41 @@ export const FaceScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
       if (subscription) {
         subscription.remove();
       }
+      if (longPressTimer.current) {
+        clearTimeout(longPressTimer.current);
+      }
     };
   }, []);
 
+  const clearLongPress = () => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  };
+
+  const handlePressIn = () => {
+    longPressFired.current = false;
+    clearLongPress();
+    longPressTimer.current = setTimeout(() => {
+      longPressFired.current = true;
+      emergencyStop();
+      SleepSystem.reportActivity();
+    }, LONG_PRESS_MS);
+  };
+
+  const handlePressOut = () => {
+    const wasLongPress = longPressFired.current;
+    clearLongPress();
+    if (wasLongPress) {
+      return;
+    }
+    handleScreenPress();
+  };
+
   const handleScreenPress = () => {
-    // Report activity to reset timer or wake up
     SleepSystem.reportActivity();
 
-    // Double tap triggers configuration menu
     const now = Date.now();
     const DOUBLE_TAP_DELAY = 300;
     if (now - lastTap.current < DOUBLE_TAP_DELAY) {
@@ -105,20 +137,22 @@ export const FaceScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   };
 
   return (
-    <TouchableWithoutFeedback onPress={handleScreenPress}>
+    <TouchableWithoutFeedback onPressIn={handlePressIn} onPressOut={handlePressOut}>
       <View style={styles.container}>
-        {/* Full-screen Face Canvas */}
         <FaceEngine />
 
-        {/* Floating Slide-In Notification Overlay */}
         <NotificationOverlay />
 
-        {/* Screen Dimmer Layer for Sleep Mode */}
         {isAsleep && (
           <View style={styles.dimmingOverlay} pointerEvents="none" />
         )}
 
-        {/* Floating Toggle Buttons */}
+        {emergencyActive && (
+          <View style={styles.estopBanner} pointerEvents="none">
+            <Text style={styles.estopBannerText}>E-STOP ACTIVE — clear from menu</Text>
+          </View>
+        )}
+
         {menuVisible && (
           <>
             <TouchableOpacity
@@ -128,6 +162,23 @@ export const FaceScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
             >
               <Text style={styles.floatingButtonText}>🏠</Text>
             </TouchableOpacity>
+            {emergencyActive ? (
+              <TouchableOpacity
+                style={styles.floatingClearEstop}
+                onPress={clearEmergency}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.floatingEstopText}>CLEAR</Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity
+                style={styles.floatingEstop}
+                onPress={emergencyStop}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.floatingEstopText}>E-STOP</Text>
+              </TouchableOpacity>
+            )}
             <TouchableOpacity
               style={styles.floatingButton}
               onPress={() => setShowTray(!showTray)}
@@ -138,7 +189,6 @@ export const FaceScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
           </>
         )}
 
-        {/* Glassmorphic Debug Tray */}
         {menuVisible && showTray && (
           <View style={styles.tray}>
             <Text style={styles.trayTitle}>Robot Emotion Controls</Text>
@@ -209,6 +259,40 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255, 255, 255, 0.25)',
     zIndex: 10,
   },
+  floatingEstop: {
+    position: 'absolute',
+    top: 20,
+    left: 74,
+    height: 44,
+    paddingHorizontal: 12,
+    borderRadius: 22,
+    backgroundColor: '#B00020',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#FF3C3C',
+    zIndex: 10,
+  },
+  floatingClearEstop: {
+    position: 'absolute',
+    top: 20,
+    left: 74,
+    height: 44,
+    paddingHorizontal: 12,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255, 180, 0, 0.35)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#FFB400',
+    zIndex: 10,
+  },
+  floatingEstopText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+  },
   floatingButton: {
     position: 'absolute',
     top: 20,
@@ -227,6 +311,23 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 20,
     fontWeight: 'bold',
+  },
+  estopBanner: {
+    position: 'absolute',
+    top: 72,
+    left: 20,
+    right: 20,
+    backgroundColor: 'rgba(176, 0, 32, 0.85)',
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    zIndex: 9,
+  },
+  estopBannerText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
+    textAlign: 'center',
   },
   tray: {
     position: 'absolute',

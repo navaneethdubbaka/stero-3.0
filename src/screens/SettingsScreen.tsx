@@ -345,6 +345,29 @@ export const SettingsScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
           <Text style={styles.stepText}>+</Text>
         </TouchableOpacity>
       </View>
+
+      <Text style={styles.label}>Differential Drive (Protocol v2 M:)</Text>
+      <View style={styles.row}>
+        <TouchableOpacity
+          style={[styles.choiceBtn, !robot.useDifferentialDrive && styles.activeChoiceBtn]}
+          onPress={() => updateRobotSettings({ useDifferentialDrive: false })}
+        >
+          <Text style={[styles.choiceText, !robot.useDifferentialDrive && styles.activeChoiceText]}>
+            OFF
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.choiceBtn, robot.useDifferentialDrive && styles.activeChoiceBtn]}
+          onPress={() => updateRobotSettings({ useDifferentialDrive: true })}
+        >
+          <Text style={[styles.choiceText, robot.useDifferentialDrive && styles.activeChoiceText]}>
+            ON
+          </Text>
+        </TouchableOpacity>
+      </View>
+      <Text style={styles.helperText}>
+        Experimental. Requires firmware with M:left,right parser. Default stays discrete F/B/L/R/S.
+      </Text>
     </View>
   );
 
@@ -673,6 +696,13 @@ const styles = StyleSheet.create({
   },
   activeChoiceText: {
     color: '#00FFFF',
+  },
+  helperText: {
+    color: '#666677',
+    fontSize: 11,
+    lineHeight: 16,
+    marginTop: -8,
+    marginBottom: 16,
   },
   voiceList: {
     maxHeight: 180,

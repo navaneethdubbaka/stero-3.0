@@ -5,7 +5,7 @@ import { useEmotionStore } from '../store/useEmotionStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useConversationStore } from '../store/useConversationStore';
 import { UsbSerialService } from '../services/UsbSerialService';
-
+import { RobotController } from '../robot/RobotController';
 interface HomeScreenProps {
   navigation: any;
 }
@@ -13,14 +13,24 @@ interface HomeScreenProps {
 export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   const isConnected = useRobotStore((state) => state.isConnected);
   const motorSpeed = useRobotStore((state) => state.motorSpeed);
+  const activeClaimant = useRobotStore((state) => state.activeClaimant);
+  const emergencyActive = useRobotStore((state) => state.emergencyActive);
+  const emergencyStop = useRobotStore((state) => state.emergencyStop);
+  const clearEmergency = useRobotStore((state) => state.clearEmergency);
   const currentEmotion = useEmotionStore((state) => state.currentEmotion);
   const initializeSettings = useSettingsStore((state) => state.initializeSettings);
   const initializeLogs = useConversationStore((state) => state.initializeLogs);
   const ai = useSettingsStore((state) => state.ai);
+  const robot = useSettingsStore((state) => state.robot);
 
   useEffect(() => {
-    // Initialize settings from shared preferences
-    initializeSettings();
+    // Initialize settings from shared preferences, then sync motor speed to controller
+    (async () => {
+      await initializeSettings();
+      const settings = useSettingsStore.getState().robot;
+      RobotController.setSpeed(settings.motorSpeed);
+      RobotController.setUseDifferentialDrive(!!settings.useDifferentialDrive);
+    })();
     initializeLogs();
     // Auto-probe USB devices on load
     UsbSerialService.autoConnect();
@@ -40,14 +50,34 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
             <Text style={styles.title}>ABIOGENESIS</Text>
             <Text style={styles.subtitle}>Companion Robot Control Center</Text>
           </View>
-          <TouchableOpacity
-            style={[styles.statusBadge, isConnected ? styles.connectedBadge : styles.disconnectedBadge]}
-            onPress={handleRetryUsb}
-            activeOpacity={0.8}
-          >
-            <View style={[styles.statusDot, isConnected ? styles.connectedDot : styles.disconnectedDot]} />
-            <Text style={styles.statusText}>{isConnected ? 'USB Connected' : 'USB Offline'}</Text>
-          </TouchableOpacity>
+          <View style={styles.headerRight}>
+            {emergencyActive ? (
+              <TouchableOpacity style={styles.clearEstopBtn} onPress={clearEmergency} activeOpacity={0.8}>
+                <Text style={styles.estopBtnText}>CLEAR E-STOP</Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity style={styles.estopBtn} onPress={emergencyStop} activeOpacity={0.8}>
+                <Text style={styles.estopBtnText}>E-STOP</Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity
+              style={[styles.statusBadge, isConnected ? styles.connectedBadge : styles.disconnectedBadge]}
+              onPress={handleRetryUsb}
+              activeOpacity={0.8}
+            >
+              <View style={[styles.statusDot, isConnected ? styles.connectedDot : styles.disconnectedDot]} />
+              <Text style={styles.statusText}>{isConnected ? 'USB Connected' : 'USB Offline'}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        <View style={styles.claimBanner}>
+          <Text style={styles.claimText}>
+            Motor claim: {activeClaimant ?? 'NONE'}
+            {emergencyActive ? ' · EMERGENCY LATCHED' : ''}
+            {' · '}Speed {motorSpeed}
+            {robot.useDifferentialDrive ? ' · Diff ON' : ''}
+          </Text>
         </View>
 
         {/* Dashboard Grid */}
@@ -138,7 +168,48 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 32,
+    marginBottom: 16,
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  estopBtn: {
+    backgroundColor: '#B00020',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#FF3C3C',
+  },
+  clearEstopBtn: {
+    backgroundColor: 'rgba(255, 180, 0, 0.25)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#FFB400',
+  },
+  estopBtnText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 0.8,
+  },
+  claimBanner: {
+    marginBottom: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+  },
+  claimText: {
+    color: '#8E8E9F',
+    fontSize: 12,
+    fontWeight: '600',
   },
   title: {
     color: '#FFFFFF',

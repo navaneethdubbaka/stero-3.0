@@ -5,7 +5,17 @@ import { UsbSerialService } from '../services/UsbSerialService';
 import { WebControllerService } from '../services/WebControllerService';
 
 export const ManualControlScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
-  const { isConnected, motorSpeed, currentDirection, setDirection, setMotorSpeed } = useRobotStore();
+  const {
+    isConnected,
+    motorSpeed,
+    currentDirection,
+    activeClaimant,
+    emergencyActive,
+    requestManualDrive,
+    setMotorSpeed,
+    emergencyStop,
+    clearEmergency,
+  } = useRobotStore();
   const [connecting, setConnecting] = useState(false);
   
   // Web Server State
@@ -32,11 +42,12 @@ export const ManualControlScreen: React.FC<{ navigation: any }> = ({ navigation 
   }, []);
 
   const handlePressIn = (direction: MovementDirection) => {
-    setDirection(direction);
+    if (emergencyActive) return;
+    requestManualDrive(direction);
   };
 
   const handlePressOut = () => {
-    setDirection('S');
+    requestManualDrive('S');
   };
 
   const adjustSpeed = (amount: number) => {
@@ -88,7 +99,10 @@ export const ManualControlScreen: React.FC<{ navigation: any }> = ({ navigation 
       <View style={styles.mainLayout}>
         {/* Left Column: D-PAD */}
         <View style={styles.leftCol}>
-          <Text style={styles.infoLabel}>CURRENT DIRECTION: {currentDirection}</Text>
+          <Text style={styles.infoLabel}>
+            DIR: {currentDirection} · CLAIM: {activeClaimant ?? 'NONE'}
+            {emergencyActive ? ' · E-STOP' : ''}
+          </Text>
           
           <View style={styles.dpad}>
             {/* Row 1: Forward */}
@@ -116,7 +130,7 @@ export const ManualControlScreen: React.FC<{ navigation: any }> = ({ navigation 
 
               <TouchableOpacity
                 style={[styles.btn, styles.stopBtn, currentDirection === 'S' && styles.activeStopBtn]}
-                onPress={() => setDirection('S')}
+                onPress={() => requestManualDrive('S')}
                 activeOpacity={0.6}
               >
                 <Text style={styles.stopText}>STOP</Text>
@@ -143,6 +157,18 @@ export const ManualControlScreen: React.FC<{ navigation: any }> = ({ navigation 
                 <Text style={styles.btnText}>▼</Text>
               </TouchableOpacity>
             </View>
+          </View>
+
+          <View style={styles.estopRow}>
+            {emergencyActive ? (
+              <TouchableOpacity style={styles.clearEstopBtn} onPress={clearEmergency} activeOpacity={0.7}>
+                <Text style={styles.estopBtnText}>CLEAR E-STOP</Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity style={styles.estopBtn} onPress={emergencyStop} activeOpacity={0.7}>
+                <Text style={styles.estopBtnText}>E-STOP</Text>
+              </TouchableOpacity>
+            )}
           </View>
         </View>
 
@@ -452,5 +478,32 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     fontSize: 10,
     letterSpacing: 0.5,
+  },
+  estopRow: {
+    marginTop: 12,
+    width: '100%',
+    alignItems: 'center',
+  },
+  estopBtn: {
+    backgroundColor: '#B00020',
+    paddingVertical: 10,
+    paddingHorizontal: 28,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#FF3C3C',
+  },
+  clearEstopBtn: {
+    backgroundColor: 'rgba(255, 180, 0, 0.2)',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#FFB400',
+  },
+  estopBtnText: {
+    color: '#FFFFFF',
+    fontWeight: '900',
+    fontSize: 12,
+    letterSpacing: 1,
   },
 });

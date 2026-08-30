@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { NativeModules } from 'react-native';
+import { RobotController } from '../robot/RobotController';
 
 const { SharedPrefs } = NativeModules;
 
@@ -23,6 +24,8 @@ interface RobotSettings {
   followDistance: number;
   trackingSensitivity: number;
   motorSpeed: number;
+  /** When true, RobotController may emit Protocol v2 M:left,right */
+  useDifferentialDrive: boolean;
 }
 
 interface DisplaySettings {
@@ -79,6 +82,7 @@ Keep responses very concise, conversational, and direct.`,
     followDistance: 1.0, // meters
     trackingSensitivity: 0.5,
     motorSpeed: 150,
+    useDifferentialDrive: false,
   },
   display: {
     faceStyle: 'default',
@@ -97,6 +101,14 @@ Keep responses very concise, conversational, and direct.`,
   updateRobotSettings: (settings) => {
     set((state) => ({ robot: { ...state.robot, ...settings } }));
     saveToStorage(get());
+
+    // Live-wire motor speed and differential flag to RobotController
+    if (settings.motorSpeed !== undefined) {
+      RobotController.setSpeed(settings.motorSpeed);
+    }
+    if (settings.useDifferentialDrive !== undefined) {
+      RobotController.setUseDifferentialDrive(settings.useDifferentialDrive);
+    }
   },
   updateDisplaySettings: (settings) => {
     set((state) => ({ display: { ...state.display, ...settings } }));
@@ -110,7 +122,13 @@ Keep responses very concise, conversational, and direct.`,
         set((state) => ({
           ai: { ...state.ai, ...parsed.ai },
           voice: { ...state.voice, ...parsed.voice },
-          robot: { ...state.robot, ...parsed.robot },
+          robot: {
+            ...state.robot,
+            ...parsed.robot,
+            // Ensure new fields survive old persisted payloads
+            useDifferentialDrive:
+              parsed.robot?.useDifferentialDrive ?? state.robot.useDifferentialDrive,
+          },
           display: { ...state.display, ...parsed.display },
         }));
       }

@@ -1,0 +1,236 @@
+import { UsbSerialService } from '../services/UsbSerialService';
+import { motorArbiter } from './MotorArbiter';
+import {
+  DriveCommand,
+  MotorClaimant,
+  MovementDirection,
+  RobotControllerStatus,
+  STOP_COMMAND,
+} from './types';
+
+type StoreMirror = {
+  setConnected: (connected: boolean) => void;
+  mirrorMotorState: (partial: {
+    motorSpeed?: number;
+    currentDirection?: MovementDirection;
+    activeClaimant?: MotorClaimant | null;
+    emergencyActive?: boolean;
+  }) => void;
+};
+
+/**
+ * Sole production writer of motor serial commands.
+ * Subscribes to MotorArbiter and applies the winning DriveCommand.
+ */
+class RobotControllerImpl {
+  private heartbeatInterval: ReturnType<typeof setInterval> | null = null;
+  private motorSpeed = 150;
+  private currentDirection: MovementDirection = 'S';
+  private lastWrite: string | null = null;
+  private useDifferentialDrive = false;
+  private started = false;
+  private unsubscribe: (() => void) | null = null;
+  private store: StoreMirror | null = null;
+
+  /** Wire Zustand mirror once (avoids circular import issues at call time). */
+  attachStore(store: StoreMirror): void {
+    this.store = store;
+  }
+
+  start(): void {
+    if (this.started) {
+      return;
+    }
+    this.started = true;
+    this.unsubscribe = motorArbiter.subscribe(() => {
+      this.applyWinningCommand();
+    });
+  }
+
+  async connect(): Promise<boolean> {
+    this.start();
+    const ok = await UsbSerialService.autoConnect();
+    this.store?.setConnected(ok);
+    if (ok) {
+      // Push current speed after bootloader wait completes inside autoConnect
+      await this.writeRaw(`V:${this.motorSpeed}\n`);
+    }
+    return ok;
+  }
+
+  async disconnect(): Promise<void> {
+    this.clearHeartbeat();
+    await UsbSerialService.disconnect();
+    this.store?.setConnected(false);
+  }
+
+  setUseDifferentialDrive(enabled: boolean): void {
+    this.useDifferentialDrive = enabled;
+  }
+
+  getUseDifferentialDrive(): boolean {
+    return this.useDifferentialDrive;
+  }
+
+  setSpeed(speed: number): void {
+    this.start();
+    const validSpeed = Math.max(0, Math.min(255, Math.round(speed)));
+    this.motorSpeed = validSpeed;
+    this.store?.mirrorMotorState({ motorSpeed: validSpeed });
+    void this.writeRaw(`V:${validSpeed}\n`);
+  }
+
+  getSpeed(): number {
+    return this.motorSpeed;
+  }
+
+  /**
+   * Claim MANUAL with a discrete direction.
+   * Passing 'S' releases the MANUAL claim.
+   */
+  requestManualDrive(direction: MovementDirection): void {
+    this.start();
+    if (direction === 'S') {
+      motorArbiter.release('MANUAL');
+      // If nothing else claims, applyWinningCommand yields STOP
+      this.applyWinningCommand();
+      return;
+    }
+    motorArbiter.claim('MANUAL', { kind: 'discrete', direction });
+  }
+
+  /** Claim or release WEB based on direction. */
+  requestWebDrive(direction: MovementDirection): void {
+    this.start();
+    if (direction === 'S') {
+      motorArbiter.release('WEB');
+      this.applyWinningCommand();
+      return;
+    }
+    motorArbiter.claim('WEB', { kind: 'discrete', direction });
+  }
+
+  /** Generic claim for future FOLLOW / DANCE modules. */
+  claim(claimant: MotorClaimant, command: DriveCommand): void {
+    this.start();
+    motorArbiter.claim(claimant, command);
+  }
+
+  release(claimant: MotorClaimant): void {
+    this.start();
+    motorArbiter.release(claimant);
+    this.applyWinningCommand();
+  }
+
+  emergencyStop(): void {
+    this.start();
+    motorArbiter.claim('EMERGENCY', STOP_COMMAND);
+    // Immediate hard stop even before notify cycle
+    this.clearHeartbeat();
+    void this.writeRaw('S\n');
+    this.currentDirection = 'S';
+    this.mirrorUi();
+  }
+
+  clearEmergency(): void {
+    this.start();
+    motorArbiter.clearEmergency();
+    this.applyWinningCommand();
+  }
+
+  stop(): void {
+    this.start();
+    this.clearHeartbeat();
+    void this.writeRaw('S\n');
+    this.currentDirection = 'S';
+    this.mirrorUi();
+  }
+
+  getStatus(): RobotControllerStatus {
+    return {
+      isConnected: UsbSerialService.getStatus().isConnected,
+      motorSpeed: this.motorSpeed,
+      currentDirection: this.currentDirection,
+      activeClaimant: motorArbiter.getActiveClaimant(),
+      emergencyActive: motorArbiter.isEmergencyActive(),
+      lastWrite: this.lastWrite,
+      useDifferentialDrive: this.useDifferentialDrive,
+    };
+  }
+
+  private applyWinningCommand(): void {
+    const command = motorArbiter.getWinningCommand();
+    this.mirrorUi();
+
+    if (command.kind === 'discrete') {
+      this.applyDiscrete(command.direction);
+      return;
+    }
+
+    // Diff drive
+    if (!this.useDifferentialDrive) {
+      // Flag off — do not emit M:; hold stop unless discrete somehow wins
+      this.applyDiscrete('S');
+      return;
+    }
+
+    const left = Math.max(0, Math.min(255, Math.round(command.left)));
+    const right = Math.max(0, Math.min(255, Math.round(command.right)));
+    const payload = `M:${left},${right}\n`;
+
+    if (left === 0 && right === 0) {
+      this.clearHeartbeat();
+      void this.writeRaw('S\n');
+      this.currentDirection = 'S';
+      this.mirrorUi();
+      return;
+    }
+
+    void this.writeRaw(payload);
+    this.currentDirection = 'F'; // approximate for UI
+    this.startHeartbeat(payload);
+    this.mirrorUi();
+  }
+
+  private applyDiscrete(direction: MovementDirection): void {
+    this.currentDirection = direction;
+    void this.writeRaw(`${direction}\n`);
+
+    if (direction === 'S') {
+      this.clearHeartbeat();
+    } else {
+      this.startHeartbeat(`${direction}\n`);
+    }
+    this.mirrorUi();
+  }
+
+  private startHeartbeat(payload: string): void {
+    this.clearHeartbeat();
+    this.heartbeatInterval = setInterval(() => {
+      void this.writeRaw(payload);
+    }, 1000);
+  }
+
+  private clearHeartbeat(): void {
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval);
+      this.heartbeatInterval = null;
+    }
+  }
+
+  private async writeRaw(data: string): Promise<boolean> {
+    this.lastWrite = data.trim();
+    return UsbSerialService.write(data);
+  }
+
+  private mirrorUi(): void {
+    this.store?.mirrorMotorState({
+      motorSpeed: this.motorSpeed,
+      currentDirection: this.currentDirection,
+      activeClaimant: motorArbiter.getActiveClaimant(),
+      emergencyActive: motorArbiter.isEmergencyActive(),
+    });
+  }
+}
+
+export const RobotController = new RobotControllerImpl();
