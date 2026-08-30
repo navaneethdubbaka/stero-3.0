@@ -1,7 +1,5 @@
 import { create } from 'zustand';
-import { NativeModules } from 'react-native';
-
-const { SharedPrefs } = NativeModules;
+import { Storage, KEYS } from '../memory/Storage';
 
 export interface Message {
   id: string;
@@ -17,6 +15,9 @@ export interface ApiError {
   details?: string;
 }
 
+/** Max messages kept on disk / in store (Page 8). LLM still uses last 8. */
+export const MAX_STORED_MESSAGES = 50;
+
 interface ConversationState {
   messages: Message[];
   apiErrors: ApiError[];
@@ -24,19 +25,14 @@ interface ConversationState {
   clearConversation: () => void;
   addError: (message: string, details?: string) => void;
   clearErrors: () => void;
+  trimMessages: () => void;
+  exportRecent: (n?: number) => Message[];
   initializeLogs: () => Promise<void>;
 }
 
-const saveToStorage = async (state: any) => {
-  try {
-    const payload = JSON.stringify({
-      messages: state.messages,
-      apiErrors: state.apiErrors,
-    });
-    await SharedPrefs.setString('chat_logs', payload);
-  } catch (e) {
-    console.error('Failed to save chat logs to SharedPrefs:', e);
-  }
+const persist = async () => {
+  const { messages, apiErrors } = useConversationStore.getState();
+  await Storage.setJson(KEYS.chatLogs, { messages, apiErrors });
 };
 
 export const useConversationStore = create<ConversationState>((set, get) => ({
@@ -51,14 +47,14 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       timestamp: Date.now(),
     };
     set((state) => ({
-      messages: [...state.messages, newMessage],
+      messages: [...state.messages, newMessage].slice(-MAX_STORED_MESSAGES),
     }));
-    saveToStorage(get());
+    void persist();
   },
 
   clearConversation: () => {
     set({ messages: [] });
-    saveToStorage(get());
+    void persist();
   },
 
   addError: (message, details) => {
@@ -71,26 +67,40 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     set((state) => ({
       apiErrors: [...state.apiErrors, newError],
     }));
-    saveToStorage(get());
+    void persist();
   },
 
   clearErrors: () => {
     set({ apiErrors: [] });
-    saveToStorage(get());
+    void persist();
+  },
+
+  trimMessages: () => {
+    const { messages } = get();
+    if (messages.length <= MAX_STORED_MESSAGES) return;
+    set({ messages: messages.slice(-MAX_STORED_MESSAGES) });
+    void persist();
+  },
+
+  exportRecent: (n = MAX_STORED_MESSAGES) => {
+    const { messages } = get();
+    return messages.slice(-Math.max(1, n));
   },
 
   initializeLogs: async () => {
     try {
-      const data = await SharedPrefs.getString('chat_logs', '');
-      if (data) {
-        const parsed = JSON.parse(data);
-        set(() => ({
-          messages: parsed.messages || [],
-          apiErrors: parsed.apiErrors || [],
-        }));
-      }
+      const parsed = await Storage.getJson<{
+        messages?: Message[];
+        apiErrors?: ApiError[];
+      }>(KEYS.chatLogs);
+      if (!parsed) return;
+      const messages = (parsed.messages || []).slice(-MAX_STORED_MESSAGES);
+      set(() => ({
+        messages,
+        apiErrors: parsed.apiErrors || [],
+      }));
     } catch (e) {
-      console.error('Failed to initialize chat logs from SharedPrefs:', e);
+      console.error('Failed to initialize chat logs from Storage:', e);
     }
   },
 }));

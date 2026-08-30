@@ -12,11 +12,52 @@ class MemoryService {
     return MemoryService.instance;
   }
 
+  getUserName(): string {
+    return useMemoryStore.getState().userName;
+  }
+
+  setUserName(name: string): void {
+    useMemoryStore.getState().setUserName(name);
+  }
+
+  getPreferences(): string {
+    return useMemoryStore.getState().userPreferences;
+  }
+
+  setPreferences(prefs: string): void {
+    useMemoryStore.getState().setUserPreferences(prefs);
+  }
+
+  getFacts(): string[] {
+    return [...useMemoryStore.getState().facts];
+  }
+
+  addFact(fact: string): void {
+    useMemoryStore.getState().addFact(fact);
+  }
+
+  clearMemory(): void {
+    useMemoryStore.getState().clearMemory();
+  }
+
+  getFriendshipLevel(): number {
+    return useMemoryStore.getState().friendshipLevel;
+  }
+
   /**
-   * Formats the stored memories into a clean text block to be injected into the LLM system prompt context.
+   * Lightweight rapport bump after a successful user→assistant turn.
+   */
+  noteSuccessfulDialogue(): void {
+    const { friendshipLevel, updateFriendshipLevel } = useMemoryStore.getState();
+    updateFriendshipLevel(Math.min(100, friendshipLevel + 1));
+  }
+
+  /**
+   * Formats the stored memories into a clean text block for the LLM system prompt.
    */
   public getMemoryContext(): string {
-    const { userName, userPreferences, facts, friendshipLevel } = useMemoryStore.getState();
+    const { userName, userPreferences, facts, friendshipLevel } =
+      useMemoryStore.getState();
     const parts: string[] = [];
 
     if (userName) {
@@ -34,27 +75,49 @@ class MemoryService {
   }
 
   /**
-   * Check user utterance for simple settings changes like names or basic preference statements.
+   * Snapshot for Settings LOGS UI.
+   */
+  getSnapshot(): {
+    userName: string;
+    userPreferences: string;
+    facts: string[];
+    friendshipLevel: number;
+  } {
+    const s = useMemoryStore.getState();
+    return {
+      userName: s.userName,
+      userPreferences: s.userPreferences,
+      facts: [...s.facts],
+      friendshipLevel: s.friendshipLevel,
+    };
+  }
+
+  /**
+   * Check user utterance for simple settings changes like names or preferences.
    */
   public parseBasicHeuristics(userUtterance: string): void {
-    // Match "my name is [name]" or "call me [name]" or "i am [name]"
-    const nameMatch = userUtterance.match(/(?:my name is|call me|i am|i'm)\s+([A-Za-z\s]+)/i);
+    const nameMatch = userUtterance.match(
+      /(?:my name is|call me|i am|i'm)\s+([A-Za-z\s]+)/i
+    );
     if (nameMatch && nameMatch[1]) {
       const name = nameMatch[1].trim();
-      // Capitalize first letter of each word
       const capitalized = name
         .split(' ')
         .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
         .join(' ');
-        
-      if (capitalized.split(' ').length <= 3 && !['sorry', 'fine', 'ready', 'happy', 'sad'].includes(capitalized.toLowerCase())) {
+
+      if (
+        capitalized.split(' ').length <= 3 &&
+        !['sorry', 'fine', 'ready', 'happy', 'sad'].includes(capitalized.toLowerCase())
+      ) {
         useMemoryStore.getState().setUserName(capitalized);
         console.log(`MemoryService: Extracted user name from utterance: "${capitalized}"`);
       }
     }
 
-    // Match basic preferences like "my favorite color is [color]"
-    const prefMatch = userUtterance.match(/(?:my favorite|i love|i like)\s+([A-Za-z\s]+)/i);
+    const prefMatch = userUtterance.match(
+      /(?:my favorite|i love|i like)\s+([A-Za-z\s]+)/i
+    );
     if (prefMatch && prefMatch[1]) {
       const pref = prefMatch[1].trim();
       if (pref.split(' ').length <= 6) {

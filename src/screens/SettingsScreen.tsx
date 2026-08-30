@@ -3,6 +3,9 @@ import { StyleSheet, View, Text, TouchableOpacity, ScrollView, TextInput, SafeAr
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useConversationStore } from '../store/useConversationStore';
 import { useCompanionStore } from '../store/useCompanionStore';
+import { useMemoryStore } from '../store/useMemoryStore';
+import MemoryService from '../memory/MemoryService';
+import { Storage } from '../memory/Storage';
 import ModelDiscovery from '../llm/ModelDiscovery';
 
 const { VoiceModule, NotificationModule } = NativeModules;
@@ -13,6 +16,10 @@ export const SettingsScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
   const { ai, voice, robot, display, updateAISettings, updateVoiceSettings, updateRobotSettings, updateDisplaySettings } = useSettingsStore();
   const { messages, apiErrors, clearConversation, clearErrors } = useConversationStore();
   const companionHistory = useCompanionStore((state) => state.history);
+  const userName = useMemoryStore((s) => s.userName);
+  const userPreferences = useMemoryStore((s) => s.userPreferences);
+  const facts = useMemoryStore((s) => s.facts);
+  const friendshipLevel = useMemoryStore((s) => s.friendshipLevel);
   const [activeTab, setActiveTab] = useState<SettingsTab>('AI');
   const [availableVoices, setAvailableVoices] = useState<any[]>([]);
 
@@ -528,10 +535,52 @@ export const SettingsScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
     </View>
   );
 
+  const handleClearCompanionMemory = () => {
+    MemoryService.clearMemory();
+  };
+
+  const handleClearMemoryAndChat = async () => {
+    MemoryService.clearMemory();
+    clearConversation();
+    clearErrors();
+    await Storage.clearAllCompanionData();
+  };
+
   const renderLogsTab = () => (
     <View style={styles.tabContent}>
-      {/* 0. Companion state transitions */}
+      {/* Memory snapshot */}
       <View style={styles.sectionHeaderRow}>
+        <Text style={styles.sectionTitle}>Companion Memory</Text>
+        <TouchableOpacity style={styles.clearBtn} onPress={handleClearCompanionMemory}>
+          <Text style={styles.clearBtnText}>Clear Memory</Text>
+        </TouchableOpacity>
+      </View>
+      <View style={[styles.msgItem, styles.systemMsgItem]}>
+        <Text style={styles.msgContentText}>
+          Name: {userName || '(none)'}
+          {'\n'}Prefs: {userPreferences || '(none)'}
+          {'\n'}Friendship: {friendshipLevel}/100
+          {'\n'}Facts ({facts.length}):
+          {facts.length === 0
+            ? ' (none)'
+            : '\n' + facts.map((f) => `• ${f}`).join('\n')}
+        </Text>
+      </View>
+      <TouchableOpacity
+        style={[styles.clearBtn, { marginTop: 8, alignSelf: 'flex-start' }]}
+        onPress={() => {
+          void handleClearMemoryAndChat();
+        }}
+      >
+        <Text style={styles.clearBtnText}>Clear Memory + Chat</Text>
+      </TouchableOpacity>
+      <Text style={[styles.hintText, { marginTop: 8 }]}>
+        Full wipe (including settings): Android Settings → Apps → ABIOGENESIS →
+        Storage → Clear data.
+      </Text>
+
+      {/* 0. Companion state transitions */}
+      <View style={[styles.sectionHeaderRow, { marginTop: 24 }]}>
         <Text style={styles.sectionTitle}>Companion State</Text>
       </View>
       {companionHistory.length > 0 ? (

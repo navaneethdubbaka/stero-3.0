@@ -269,6 +269,7 @@ class VoiceService {
       FollowMode.stop();
       conversationStore.addMessage('user', text);
       conversationStore.addMessage('assistant', 'Okay, I stopped following.');
+      MemoryService.noteSuccessfulDialogue();
       await this.speak('Okay, I stopped following.');
       return;
     }
@@ -285,6 +286,7 @@ class VoiceService {
       FollowMode.start();
       conversationStore.addMessage('user', text);
       conversationStore.addMessage('assistant', 'Okay, I will follow you. Open Vision if the camera is off.');
+      MemoryService.noteSuccessfulDialogue();
       await this.speak('Okay, I will follow you.');
       return;
     }
@@ -296,6 +298,7 @@ class VoiceService {
       const reply = await VisionAiService.answer(normalized);
       conversationStore.addMessage('user', text);
       conversationStore.addMessage('assistant', reply);
+      MemoryService.noteSuccessfulDialogue();
       await this.speak(reply);
       return;
     }
@@ -307,6 +310,7 @@ class VoiceService {
       DanceMode.stop('voice');
       conversationStore.addMessage('user', text);
       conversationStore.addMessage('assistant', 'Okay, I stopped dancing.');
+      MemoryService.noteSuccessfulDialogue();
       await this.speak('Okay, I stopped dancing.');
       return;
     }
@@ -323,6 +327,7 @@ class VoiceService {
         return;
       }
       conversationStore.addMessage('assistant', "Okay, let's dance!");
+      MemoryService.noteSuccessfulDialogue();
       // start() already speaks "Let's dance!" — avoid double TTS
       return;
     }
@@ -344,6 +349,7 @@ class VoiceService {
       
       // 5. Add assistant message to history
       conversationStore.addMessage('assistant', assistantText);
+      MemoryService.noteSuccessfulDialogue();
 
       // 6. Read assistant response out loud (TTS)
       await this.speak(assistantText);

@@ -32,4 +32,14 @@ class SharedPrefsModule(reactContext: ReactApplicationContext) : ReactContextBas
             promise.reject("ERR_SHARED_PREFS_READ", e.message, e)
         }
     }
+
+    @ReactMethod
+    fun remove(key: String, promise: Promise) {
+        try {
+            sharedPref.edit().remove(key).apply()
+            promise.resolve(true)
+        } catch (e: Exception) {
+            promise.reject("ERR_SHARED_PREFS_REMOVE", e.message, e)
+        }
+    }
 }

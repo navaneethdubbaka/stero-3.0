@@ -3,7 +3,6 @@ import { StyleSheet, View, Text, TouchableOpacity, ScrollView, SafeAreaView } fr
 import { useRobotStore } from '../store/useRobotStore';
 import { useEmotionStore } from '../store/useEmotionStore';
 import { useSettingsStore } from '../store/useSettingsStore';
-import { useConversationStore } from '../store/useConversationStore';
 import { useCompanionStore } from '../store/useCompanionStore';
 import { useDanceStore } from '../store/useDanceStore';
 import { UsbSerialService } from '../services/UsbSerialService';
@@ -24,22 +23,18 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   const companionState = useCompanionStore((state) => state.state);
   const danceEnabled = useDanceStore((state) => state.enabled);
   const danceStatus = useDanceStore((state) => state.status);
-  const initializeSettings = useSettingsStore((state) => state.initializeSettings);
-  const initializeLogs = useConversationStore((state) => state.initializeLogs);
   const ai = useSettingsStore((state) => state.ai);
   const robot = useSettingsStore((state) => state.robot);
 
   useEffect(() => {
-    // Initialize settings from shared preferences, then sync motor speed to controller
     (async () => {
-      await initializeSettings();
+      const { ensureBooted } = require('../memory/bootPersistence');
+      await ensureBooted();
       const settings = useSettingsStore.getState().robot;
       RobotController.setSpeed(settings.motorSpeed);
       RobotController.setUseDifferentialDrive(!!settings.useDifferentialDrive);
+      await UsbSerialService.autoConnect();
     })();
-    initializeLogs();
-    // Auto-probe USB devices on load
-    UsbSerialService.autoConnect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

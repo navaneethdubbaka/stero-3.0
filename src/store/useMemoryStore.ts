@@ -1,7 +1,5 @@
 import { create } from 'zustand';
-import { NativeModules } from 'react-native';
-
-const { SharedPrefs } = NativeModules;
+import { Storage, KEYS } from '../memory/Storage';
 
 export interface MemoryState {
   userName: string;
@@ -13,81 +11,86 @@ export interface MemoryState {
   addFact: (fact: string) => void;
   removeFact: (fact: string) => void;
   updateFriendshipLevel: (level: number) => void;
+  clearMemory: () => void;
   initializeMemory: () => Promise<void>;
 }
 
-const saveToStorage = async (state: Omit<MemoryState, 'setUserName' | 'setUserPreferences' | 'addFact' | 'removeFact' | 'updateFriendshipLevel' | 'initializeMemory'>) => {
-  try {
-    const payload = JSON.stringify({
-      userName: state.userName,
-      userPreferences: state.userPreferences,
-      facts: state.facts,
-      friendshipLevel: state.friendshipLevel,
-    });
-    await SharedPrefs.setString('robot_memory', payload);
-  } catch (e) {
-    console.error('Failed to save memory to SharedPrefs:', e);
-  }
+const persist = async () => {
+  const { userName, userPreferences, facts, friendshipLevel } =
+    useMemoryStore.getState();
+  await Storage.setJson(KEYS.robotMemory, {
+    userName,
+    userPreferences,
+    facts,
+    friendshipLevel,
+  });
 };
 
 export const useMemoryStore = create<MemoryState>((set, get) => ({
   userName: '',
   userPreferences: '',
   facts: [],
-  friendshipLevel: 50, // Starts neutral
+  friendshipLevel: 50,
 
   setUserName: (name) => {
     set({ userName: name });
-    const { userName, userPreferences, facts, friendshipLevel } = get();
-    saveToStorage({ userName, userPreferences, facts, friendshipLevel });
+    void persist();
   },
 
   setUserPreferences: (prefs) => {
     set({ userPreferences: prefs });
-    const { userName, userPreferences, facts, friendshipLevel } = get();
-    saveToStorage({ userName, userPreferences, facts, friendshipLevel });
+    void persist();
   },
 
   addFact: (fact) => {
     const trimmed = fact.trim();
     if (!trimmed) return;
     set((state) => {
-      // Avoid duplicate facts
       if (state.facts.includes(trimmed)) return state;
       return { facts: [...state.facts, trimmed] };
     });
-    const { userName, userPreferences, facts, friendshipLevel } = get();
-    saveToStorage({ userName, userPreferences, facts, friendshipLevel });
+    void persist();
   },
 
   removeFact: (factToRemove) => {
     set((state) => ({
       facts: state.facts.filter((f) => f !== factToRemove),
     }));
-    const { userName, userPreferences, facts, friendshipLevel } = get();
-    saveToStorage({ userName, userPreferences, facts, friendshipLevel });
+    void persist();
   },
 
   updateFriendshipLevel: (level) => {
     set({ friendshipLevel: Math.max(0, Math.min(100, level)) });
-    const { userName, userPreferences, facts, friendshipLevel } = get();
-    saveToStorage({ userName, userPreferences, facts, friendshipLevel });
+    void persist();
+  },
+
+  clearMemory: () => {
+    set({
+      userName: '',
+      userPreferences: '',
+      facts: [],
+      friendshipLevel: 50,
+    });
+    void persist();
   },
 
   initializeMemory: async () => {
     try {
-      const data = await SharedPrefs.getString('robot_memory', '');
-      if (data) {
-        const parsed = JSON.parse(data);
-        set((state) => ({
-          userName: parsed.userName ?? state.userName,
-          userPreferences: parsed.userPreferences ?? state.userPreferences,
-          facts: parsed.facts ?? state.facts,
-          friendshipLevel: parsed.friendshipLevel ?? state.friendshipLevel,
-        }));
-      }
+      const parsed = await Storage.getJson<{
+        userName?: string;
+        userPreferences?: string;
+        facts?: string[];
+        friendshipLevel?: number;
+      }>(KEYS.robotMemory);
+      if (!parsed) return;
+      set((state) => ({
+        userName: parsed.userName ?? state.userName,
+        userPreferences: parsed.userPreferences ?? state.userPreferences,
+        facts: parsed.facts ?? state.facts,
+        friendshipLevel: parsed.friendshipLevel ?? state.friendshipLevel,
+      }));
     } catch (e) {
-      console.error('Failed to initialize memory from SharedPrefs:', e);
+      console.error('Failed to initialize memory from Storage:', e);
     }
   },
 }));

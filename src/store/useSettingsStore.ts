@@ -1,8 +1,6 @@
 import { create } from 'zustand';
-import { NativeModules } from 'react-native';
 import { RobotController } from '../robot/RobotController';
-
-const { SharedPrefs } = NativeModules;
+import { Storage, KEYS } from '../memory/Storage';
 
 interface AISettings {
   baseUrl: string;
@@ -54,18 +52,13 @@ interface SettingsState {
   initializeSettings: () => Promise<void>;
 }
 
-const saveToStorage = async (state: any) => {
-  try {
-    const payload = JSON.stringify({
-      ai: state.ai,
-      voice: state.voice,
-      robot: state.robot,
-      display: state.display,
-    });
-    await SharedPrefs.setString('settings', payload);
-  } catch (e) {
-    console.error('Failed to save settings to SharedPrefs:', e);
-  }
+const persistSettings = async (state: SettingsState) => {
+  await Storage.setJson(KEYS.settings, {
+    ai: state.ai,
+    voice: state.voice,
+    robot: state.robot,
+    display: state.display,
+  });
 };
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({
@@ -104,17 +97,16 @@ Keep responses very concise, conversational, and direct.`,
 
   updateAISettings: (settings) => {
     set((state) => ({ ai: { ...state.ai, ...settings } }));
-    saveToStorage(get());
+    void persistSettings(get());
   },
   updateVoiceSettings: (settings) => {
     set((state) => ({ voice: { ...state.voice, ...settings } }));
-    saveToStorage(get());
+    void persistSettings(get());
   },
   updateRobotSettings: (settings) => {
     set((state) => ({ robot: { ...state.robot, ...settings } }));
-    saveToStorage(get());
+    void persistSettings(get());
 
-    // Live-wire motor speed and differential flag to RobotController
     if (settings.motorSpeed !== undefined) {
       RobotController.setSpeed(settings.motorSpeed);
     }
@@ -124,36 +116,38 @@ Keep responses very concise, conversational, and direct.`,
   },
   updateDisplaySettings: (settings) => {
     set((state) => ({ display: { ...state.display, ...settings } }));
-    saveToStorage(get());
+    void persistSettings(get());
   },
   initializeSettings: async () => {
     try {
-      const data = await SharedPrefs.getString('settings', '');
-      if (data) {
-        const parsed = JSON.parse(data);
-        set((state) => ({
-          ai: {
-            ...state.ai,
-            ...parsed.ai,
-            allowVisionAi: parsed.ai?.allowVisionAi ?? state.ai.allowVisionAi,
-            visionMaxEdgePx: parsed.ai?.visionMaxEdgePx ?? state.ai.visionMaxEdgePx,
-            visionModel: parsed.ai?.visionModel ?? state.ai.visionModel,
-            debugSaveVisionStills:
-              parsed.ai?.debugSaveVisionStills ?? state.ai.debugSaveVisionStills,
-          },
-          voice: { ...state.voice, ...parsed.voice },
-          robot: {
-            ...state.robot,
-            ...parsed.robot,
-            // Ensure new fields survive old persisted payloads
-            useDifferentialDrive:
-              parsed.robot?.useDifferentialDrive ?? state.robot.useDifferentialDrive,
-          },
-          display: { ...state.display, ...parsed.display },
-        }));
-      }
+      const parsed = await Storage.getJson<{
+        ai?: Partial<AISettings>;
+        voice?: Partial<VoiceSettings>;
+        robot?: Partial<RobotSettings>;
+        display?: Partial<DisplaySettings>;
+      }>(KEYS.settings);
+      if (!parsed) return;
+      set((state) => ({
+        ai: {
+          ...state.ai,
+          ...parsed.ai,
+          allowVisionAi: parsed.ai?.allowVisionAi ?? state.ai.allowVisionAi,
+          visionMaxEdgePx: parsed.ai?.visionMaxEdgePx ?? state.ai.visionMaxEdgePx,
+          visionModel: parsed.ai?.visionModel ?? state.ai.visionModel,
+          debugSaveVisionStills:
+            parsed.ai?.debugSaveVisionStills ?? state.ai.debugSaveVisionStills,
+        },
+        voice: { ...state.voice, ...parsed.voice },
+        robot: {
+          ...state.robot,
+          ...parsed.robot,
+          useDifferentialDrive:
+            parsed.robot?.useDifferentialDrive ?? state.robot.useDifferentialDrive,
+        },
+        display: { ...state.display, ...parsed.display },
+      }));
     } catch (e) {
-      console.error('Failed to initialize settings from SharedPrefs:', e);
+      console.error('Failed to initialize settings from Storage:', e);
     }
   },
 }));
