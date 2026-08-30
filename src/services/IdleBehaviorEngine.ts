@@ -55,7 +55,18 @@ class IdleBehaviorEngine {
       return;
     }
 
-    const actions = ['WINK', 'LOOK_AROUND', 'YAWN'];
+    let actions = ['WINK', 'LOOK_AROUND', 'YAWN'];
+    // Skip LOOK_AROUND when someone is locked — EyeContactEngine owns gaze
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { useTrackingStore } = require('../store/useTrackingStore');
+      if (useTrackingStore.getState().targetLocked) {
+        actions = ['WINK', 'YAWN'];
+      }
+    } catch {
+      // ignore
+    }
+
     const randomAction = actions[Math.floor(Math.random() * actions.length)];
 
     console.log(`IdleBehaviorEngine: Running micro-action -> ${randomAction}`);

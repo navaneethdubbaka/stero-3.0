@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { StyleSheet, View } from 'react-native';
 import Video from 'react-native-video';
 import { useEmotionStore, EmotionType } from '../store/useEmotionStore';
+import { GazeOverlay } from './GazeOverlay';
 
 const emotionVideos: Record<EmotionType, any> = {
   IDLE: require('../assets/faces/normal.mp4'),
@@ -73,6 +74,9 @@ export const FaceEngine: React.FC = () => {
           onReadyForDisplay={() => setActiveReady(true)}
         />
       )}
+
+      {/* 3. Social gaze pupils (tracking offset) */}
+      <GazeOverlay />
     </View>
   );
 };

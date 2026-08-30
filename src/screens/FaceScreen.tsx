@@ -7,6 +7,9 @@ import { useNotificationStore } from '../store/useNotificationStore';
 import { useRobotStore } from '../store/useRobotStore';
 import { useFollowStore } from '../store/useFollowStore';
 import { FollowMode } from '../robot/FollowMode';
+import { VisionCameraView } from '../vision/VisionCameraView';
+import { TrackingEngine } from '../vision/TrackingEngine';
+import EmotionRuleEngine from '../services/EmotionRuleEngine';
 import VoiceService from '../voice/VoiceService';
 import SleepSystem from '../services/SleepSystem';
 import IdleBehaviorEngine from '../services/IdleBehaviorEngine';
@@ -38,6 +41,8 @@ const EMOTIONS: EmotionType[] = [
 ];
 
 const LONG_PRESS_MS = 600;
+const PERSON_FOUND_THROTTLE_MS = 8000;
+const PERSON_FOUND_ALERT_MS = 800;
 
 export const FaceScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const currentEmotion = useEmotionStore((state) => state.currentEmotion);
@@ -57,6 +62,7 @@ export const FaceScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const lastTap = useRef<number>(0);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressFired = useRef(false);
+  const lastPersonFoundPing = useRef<number>(0);
 
   useEffect(() => {
     startBlinkingLoop();
@@ -89,17 +95,36 @@ export const FaceScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
       console.warn('FaceScreen: Failed to setup notification listener', err);
     }
 
+    const unsubTracking = TrackingEngine.subscribe((event) => {
+      if (event !== 'PERSON_FOUND') return;
+      const { currentEmotion: emo } = useEmotionStore.getState();
+      if (emo !== 'IDLE') return;
+      const now = Date.now();
+      if (now - lastPersonFoundPing.current < PERSON_FOUND_THROTTLE_MS) return;
+      lastPersonFoundPing.current = now;
+      EmotionRuleEngine.triggerEvent('PERSON_FOUND');
+      setTimeout(() => {
+        if (useEmotionStore.getState().currentEmotion === 'ALERT') {
+          useEmotionStore.getState().setEmotion('IDLE');
+        }
+      }, PERSON_FOUND_ALERT_MS);
+    });
+
     return () => {
       stopBlinkingLoop();
       VoiceService.stopWakeWordDetection();
       VoiceService.stopSpeaking();
       SleepSystem.stop();
       IdleBehaviorEngine.stop();
+      unsubTracking();
       if (subscription) {
         subscription.remove();
       }
       if (longPressTimer.current) {
         clearTimeout(longPressTimer.current);
+      }
+      if (!FollowMode.isEnabled()) {
+        TrackingEngine.reset();
       }
     };
   }, []);
@@ -141,10 +166,26 @@ export const FaceScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
     lastTap.current = now;
   };
 
+  const handlePoseDetected = (event: any) => {
+    TrackingEngine.ingest(event.nativeEvent);
+  };
+
   return (
     <TouchableWithoutFeedback onPressIn={handlePressIn} onPressOut={handlePressOut}>
       <View style={styles.container}>
         <FaceEngine />
+
+        {/*
+          Hidden pose host for gaze + Follow while Face is foreground.
+          Power cost: CameraX + MediaPipe while awake. Unmounted in sleep.
+          Stack unmounts Face when Vision opens → one camera at a time.
+        */}
+        {!isAsleep && (
+          <VisionCameraView
+            style={styles.hiddenCamera}
+            onPoseDetected={handlePoseDetected}
+          />
+        )}
 
         <NotificationOverlay />
 
@@ -267,6 +308,15 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#000000',
+  },
+  hiddenCamera: {
+    position: 'absolute',
+    width: 1,
+    height: 1,
+    opacity: 0,
+    left: 0,
+    top: 0,
+    zIndex: -1,
   },
   floatingBackButton: {
     position: 'absolute',

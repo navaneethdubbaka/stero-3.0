@@ -26,6 +26,7 @@ class EmotionRuleEngine {
       | 'NOTIFICATION'
       | 'INACTIVITY'
       | 'SYSTEM_ERROR'
+      | 'PERSON_FOUND'
   ) {
     const { setEmotion } = useEmotionStore.getState();
     console.log(`EmotionRuleEngine: Processing event: ${event}`);
@@ -57,6 +58,9 @@ class EmotionRuleEngine {
         break;
       case 'SYSTEM_ERROR':
         setEmotion('SAD');
+        break;
+      case 'PERSON_FOUND':
+        setEmotion('ALERT');
         break;
       default:
         setEmotion('IDLE');
