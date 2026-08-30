@@ -191,9 +191,10 @@ class CompanionStateMachineImpl {
         return { ok: true, to: from };
 
       case 'MANUAL_ON':
-        if (from === 'SLEEP' || from === 'DANCING') {
+        if (from === 'SLEEP') {
           return { ok: false, reason: `MANUAL_ON rejected from ${from}` };
         }
+        // From DANCING: pad aborts dance display → MANUAL
         return { ok: true, to: 'MANUAL' };
 
       case 'MANUAL_OFF':

@@ -7,7 +7,9 @@ import { useNotificationStore } from '../store/useNotificationStore';
 import { useRobotStore } from '../store/useRobotStore';
 import { useFollowStore } from '../store/useFollowStore';
 import { useCompanionStore } from '../store/useCompanionStore';
+import { useDanceStore } from '../store/useDanceStore';
 import { FollowMode } from '../robot/FollowMode';
+import { DanceMode } from '../robot/DanceMode';
 import { VisionCameraView } from '../vision/VisionCameraView';
 import { TrackingEngine } from '../vision/TrackingEngine';
 import EmotionRuleEngine from '../services/EmotionRuleEngine';
@@ -58,6 +60,9 @@ export const FaceScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const followEnabled = useFollowStore((state) => state.enabled);
   const followStatus = useFollowStore((state) => state.status);
   const companionState = useCompanionStore((state) => state.state);
+  const danceEnabled = useDanceStore((state) => state.enabled);
+  const danceStatus = useDanceStore((state) => state.status);
+  const danceRoutine = useDanceStore((state) => state.routineId);
 
   const [showTray, setShowTray] = useState(false);
   const [menuVisible, setMenuVisible] = useState(false);
@@ -258,6 +263,26 @@ export const FaceScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
                 {followEnabled ? `FOLLOW ${followStatus}` : isConnected ? 'FOLLOW' : 'NO USB'}
               </Text>
             </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.floatingDance,
+                danceEnabled ? styles.floatingDanceOn : styles.floatingDanceOff,
+              ]}
+              onPress={() => {
+                if (DanceMode.isEnabled()) {
+                  DanceMode.stop('ui');
+                } else {
+                  DanceMode.start('spin_happy');
+                }
+              }}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.floatingEstopText}>
+                {danceEnabled
+                  ? `DANCE ${danceRoutine ?? danceStatus}`
+                  : 'DANCE'}
+              </Text>
+            </TouchableOpacity>
           </>
         )}
 
@@ -433,6 +458,26 @@ const styles = StyleSheet.create({
   floatingFollowOn: {
     backgroundColor: 'rgba(0, 255, 200, 0.45)',
     borderColor: '#00FFC8',
+  },
+  floatingDance: {
+    position: 'absolute',
+    top: 116,
+    right: 20,
+    height: 36,
+    paddingHorizontal: 12,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    zIndex: 10,
+  },
+  floatingDanceOff: {
+    backgroundColor: 'rgba(255, 120, 200, 0.2)',
+    borderColor: 'rgba(255, 120, 200, 0.45)',
+  },
+  floatingDanceOn: {
+    backgroundColor: 'rgba(255, 120, 200, 0.5)',
+    borderColor: '#FF78C8',
   },
   floatingButtonText: {
     color: '#FFFFFF',

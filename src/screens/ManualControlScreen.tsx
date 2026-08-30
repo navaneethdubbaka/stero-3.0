@@ -44,6 +44,11 @@ export const ManualControlScreen: React.FC<{ navigation: any }> = ({ navigation 
 
   const handlePressIn = (direction: MovementDirection) => {
     if (emergencyActive) return;
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { DanceMode } = require('../robot/DanceMode');
+    if (DanceMode.isEnabled()) {
+      DanceMode.stop('manual');
+    }
     CompanionStateMachine.dispatch('MANUAL_ON');
     requestManualDrive(direction);
   };

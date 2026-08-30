@@ -88,6 +88,16 @@ class SleepSystem {
       console.warn('SleepSystem: Failed to stop FollowMode', e);
     }
 
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { DanceMode } = require('../robot/DanceMode');
+      if (DanceMode.isEnabled()) {
+        DanceMode.stop('sleep');
+      }
+    } catch (e) {
+      console.warn('SleepSystem: Failed to stop DanceMode', e);
+    }
+
     // Mark as asleep; companion machine drives SLEEPY emotion
     useSleepStore.getState().setAsleep(true);
     CompanionStateMachine.dispatch('SLEEP');

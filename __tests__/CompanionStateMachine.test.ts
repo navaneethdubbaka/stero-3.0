@@ -73,6 +73,11 @@ describe('CompanionStateMachine', () => {
     expect(CompanionStateMachine.requestDanceEnd().to).toBe('IDLE');
   });
 
+  it('MANUAL_ON from DANCING aborts to MANUAL', () => {
+    CompanionStateMachine._resetForTests('DANCING');
+    expect(CompanionStateMachine.dispatch('MANUAL_ON').to).toBe('MANUAL');
+  });
+
   it('keeps a 20-entry ring buffer and mirrors store', () => {
     for (let i = 0; i < 25; i++) {
       CompanionStateMachine.dispatch('LISTEN_START');

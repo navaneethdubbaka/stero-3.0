@@ -5,8 +5,10 @@ import { useEmotionStore } from '../store/useEmotionStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useConversationStore } from '../store/useConversationStore';
 import { useCompanionStore } from '../store/useCompanionStore';
+import { useDanceStore } from '../store/useDanceStore';
 import { UsbSerialService } from '../services/UsbSerialService';
 import { RobotController } from '../robot/RobotController';
+import { DanceMode } from '../robot/DanceMode';
 interface HomeScreenProps {
   navigation: any;
 }
@@ -20,6 +22,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   const clearEmergency = useRobotStore((state) => state.clearEmergency);
   const currentEmotion = useEmotionStore((state) => state.currentEmotion);
   const companionState = useCompanionStore((state) => state.state);
+  const danceEnabled = useDanceStore((state) => state.enabled);
+  const danceStatus = useDanceStore((state) => state.status);
   const initializeSettings = useSettingsStore((state) => state.initializeSettings);
   const initializeLogs = useConversationStore((state) => state.initializeLogs);
   const ai = useSettingsStore((state) => state.ai);
@@ -138,6 +142,27 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
             <Text style={styles.cardIcon}>👁️</Text>
             <Text style={styles.cardTitle}>Vision Tracking</Text>
             <Text style={styles.cardDesc}>Run MediaPipe body landmarks tracking and center-offset diagnostics</Text>
+          </TouchableOpacity>
+
+          {/* Card 6: Dance */}
+          <TouchableOpacity
+            style={styles.card}
+            onPress={() => {
+              if (DanceMode.isEnabled()) {
+                DanceMode.stop('ui');
+              } else {
+                DanceMode.start('spin_happy');
+              }
+            }}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.cardIcon}>💃</Text>
+            <Text style={styles.cardTitle}>Dance</Text>
+            <Text style={styles.cardDesc}>
+              {danceEnabled
+                ? `Playing spin_happy · ${danceStatus}. Tap to stop.`
+                : `Scripted spin_happy routine. Companion: ${companionState}`}
+            </Text>
           </TouchableOpacity>
         </View>
 

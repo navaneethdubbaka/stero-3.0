@@ -72,6 +72,17 @@ class VoiceService {
       CompanionStateMachine.dispatch('WAKE');
       SleepSystem.reportActivity();
 
+      // Abort dance so LISTEN_START is legal from IDLE
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const { DanceMode } = require('../robot/DanceMode');
+        if (DanceMode.isEnabled()) {
+          DanceMode.stop('wake');
+        }
+      } catch (e) {
+        console.warn('VoiceService: Failed to stop DanceMode on wake', e);
+      }
+
       if (this.isSpeakingState) {
         console.log('VoiceService: Wake word detected during speech. Interrupting TTS...');
         await this.stopSpeaking();
@@ -286,6 +297,33 @@ class VoiceService {
       conversationStore.addMessage('user', text);
       conversationStore.addMessage('assistant', reply);
       await this.speak(reply);
+      return;
+    }
+
+    // Dance Mode (Page 7)
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { DanceMode } = require('../robot/DanceMode');
+    if (/stop\s+dancing|stop\s+dance/i.test(normalized)) {
+      DanceMode.stop('voice');
+      conversationStore.addMessage('user', text);
+      conversationStore.addMessage('assistant', 'Okay, I stopped dancing.');
+      await this.speak('Okay, I stopped dancing.');
+      return;
+    }
+    if (
+      /^(let'?s\s+)?dance[.!?]*$/i.test(normalized) ||
+      /\bdance\s+(for\s+me|now)\b/i.test(normalized)
+    ) {
+      const result = DanceMode.start('spin_happy');
+      conversationStore.addMessage('user', text);
+      if (!result.ok) {
+        const msg = result.reason || 'I cannot dance right now.';
+        conversationStore.addMessage('assistant', msg);
+        await this.speak(msg);
+        return;
+      }
+      conversationStore.addMessage('assistant', "Okay, let's dance!");
+      // start() already speaks "Let's dance!" — avoid double TTS
       return;
     }
 
