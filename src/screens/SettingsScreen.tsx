@@ -178,6 +178,85 @@ export const SettingsScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
         </View>
       </View>
 
+      <Text style={[styles.sectionTitle, { marginTop: 20 }]}>Vision AI</Text>
+      <Text style={styles.hintText}>
+        Camera stills for “what do you see?” — not stored unless debug save is on.
+      </Text>
+
+      <Text style={styles.label}>Allow Vision AI</Text>
+      <View style={styles.row}>
+        <TouchableOpacity
+          style={[styles.choiceBtn, ai.allowVisionAi && styles.activeChoiceBtn]}
+          onPress={() => updateAISettings({ allowVisionAi: true })}
+        >
+          <Text style={[styles.choiceText, ai.allowVisionAi && styles.activeChoiceText]}>ON</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.choiceBtn, !ai.allowVisionAi && styles.activeChoiceBtn]}
+          onPress={() => updateAISettings({ allowVisionAi: false })}
+        >
+          <Text style={[styles.choiceText, !ai.allowVisionAi && styles.activeChoiceText]}>OFF</Text>
+        </TouchableOpacity>
+      </View>
+
+      <Text style={styles.label}>Max image edge ({ai.visionMaxEdgePx}px)</Text>
+      <View style={styles.stepper}>
+        <TouchableOpacity
+          style={styles.stepButton}
+          onPress={() =>
+            updateAISettings({
+              visionMaxEdgePx: Math.max(256, (ai.visionMaxEdgePx || 768) - 128),
+            })
+          }
+        >
+          <Text style={styles.stepText}>-</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.stepButton}
+          onPress={() =>
+            updateAISettings({
+              visionMaxEdgePx: Math.min(1536, (ai.visionMaxEdgePx || 768) + 128),
+            })
+          }
+        >
+          <Text style={styles.stepText}>+</Text>
+        </TouchableOpacity>
+      </View>
+
+      <Text style={styles.label}>Vision model override (optional)</Text>
+      <TextInput
+        style={styles.input}
+        value={ai.visionModel}
+        onChangeText={(val) => updateAISettings({ visionModel: val })}
+        placeholder="Leave empty to use main model"
+        placeholderTextColor="#555"
+      />
+
+      <Text style={styles.label}>Debug save stills to cache</Text>
+      <View style={styles.row}>
+        <TouchableOpacity
+          style={[styles.choiceBtn, ai.debugSaveVisionStills && styles.activeChoiceBtn]}
+          onPress={() => updateAISettings({ debugSaveVisionStills: true })}
+        >
+          <Text style={[styles.choiceText, ai.debugSaveVisionStills && styles.activeChoiceText]}>
+            ON
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.choiceBtn, !ai.debugSaveVisionStills && styles.activeChoiceBtn]}
+          onPress={() => updateAISettings({ debugSaveVisionStills: false })}
+        >
+          <Text style={[styles.choiceText, !ai.debugSaveVisionStills && styles.activeChoiceText]}>
+            OFF
+          </Text>
+        </TouchableOpacity>
+      </View>
+      {ai.debugSaveVisionStills && (
+        <Text style={styles.hintText}>
+          Warning: JPEG frames are written under the app cache for debugging only.
+        </Text>
+      )}
+
       <Text style={styles.label}>System Prompt</Text>
       <TextInput
         style={[styles.input, styles.multilineInput]}
@@ -658,6 +737,12 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginBottom: 8,
     textTransform: 'uppercase',
+  },
+  hintText: {
+    color: '#6A6A72',
+    fontSize: 12,
+    marginBottom: 12,
+    lineHeight: 17,
   },
   input: {
     backgroundColor: 'rgba(255, 255, 255, 0.03)',

@@ -278,6 +278,17 @@ class VoiceService {
       return;
     }
 
+    // Vision AI (Page 6) — still capture → multimodal LLM or pose fallback
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { VisionAiService } = require('../vision/VisionAiService');
+    if (VisionAiService.matchIntent(normalized)) {
+      const reply = await VisionAiService.answer(normalized);
+      conversationStore.addMessage('user', text);
+      conversationStore.addMessage('assistant', reply);
+      await this.speak(reply);
+      return;
+    }
+
     // 1. Run memory heuristics on user input to extract any names or preferences
     MemoryService.parseBasicHeuristics(text);
 

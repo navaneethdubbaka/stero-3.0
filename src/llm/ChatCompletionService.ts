@@ -1,4 +1,7 @@
-import LlmClient, { ChatMessage } from './LlmClient';
+import LlmClient, {
+  ChatMessage,
+  VisionImageUnsupportedError,
+} from './LlmClient';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useConversationStore } from '../store/useConversationStore';
 
@@ -20,12 +23,32 @@ class ChatCompletionService {
    */
   public async generateCompletion(messages: ChatMessage[]): Promise<string> {
     const { ai } = useSettingsStore.getState();
+    return this.runCompletion(messages, ai.model);
+  }
+
+  /**
+   * Multimodal completion for Vision AI. Uses ai.visionModel when set, else ai.model.
+   */
+  public async generateVisionCompletion(
+    messages: ChatMessage[],
+    options?: { model?: string }
+  ): Promise<string> {
+    const { ai } = useSettingsStore.getState();
+    const model =
+      (options?.model && options.model.trim()) ||
+      (ai.visionModel && ai.visionModel.trim()) ||
+      ai.model;
+    return this.runCompletion(messages, model);
+  }
+
+  private async runCompletion(messages: ChatMessage[], model: string): Promise<string> {
+    const { ai } = useSettingsStore.getState();
     const conversationStore = useConversationStore.getState();
 
     try {
       const response = await LlmClient.createChatCompletion(ai.baseUrl, ai.apiKey, {
-        model: ai.model,
-        messages: messages,
+        model,
+        messages,
         temperature: ai.temperature,
         max_tokens: ai.maxTokens,
       });
@@ -37,19 +60,22 @@ class ChatCompletionService {
         throw new Error('LLM Response returned an empty choices payload.');
       }
 
-      return reply;
+      return typeof reply === 'string' ? reply : String(reply);
     } catch (error: any) {
       console.error('ChatCompletionService: Error generating completion:', error);
-      
-      // Log error internally for diagnostic tab
+
       conversationStore.addError(
         error.message || 'LLM completion request failed.',
-        `Base URL: ${ai.baseUrl}\nModel: ${ai.model}\nTimestamp: ${new Date().toLocaleString()}`
+        `Base URL: ${ai.baseUrl}\nModel: ${model}\nTimestamp: ${new Date().toLocaleString()}`
       );
-      
+
+      if (error instanceof VisionImageUnsupportedError) {
+        throw error;
+      }
       throw error;
     }
   }
 }
 
+export { VisionImageUnsupportedError };
 export default ChatCompletionService.getInstance();

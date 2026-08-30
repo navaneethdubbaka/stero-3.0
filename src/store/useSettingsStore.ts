@@ -11,6 +11,14 @@ interface AISettings {
   temperature: number;
   maxTokens: number;
   systemPrompt: string;
+  /** When false, vision questions use pose-text fallback only (no still upload). */
+  allowVisionAi: boolean;
+  /** Long-edge max for JPEG stills sent to the LLM. */
+  visionMaxEdgePx: number;
+  /** Optional vision-capable model override; empty = use `model`. */
+  visionModel: string;
+  /** When true, native layer may write JPEG to app cache for debugging. */
+  debugSaveVisionStills: boolean;
 }
 
 interface VoiceSettings {
@@ -71,6 +79,10 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 You are a friendly robotic companion.
 You are expressive and helpful.
 Keep responses very concise, conversational, and direct.`,
+    allowVisionAi: true,
+    visionMaxEdgePx: 768,
+    visionModel: '',
+    debugSaveVisionStills: false,
   },
   voice: {
     wakeWord: 'Sonic',
@@ -120,7 +132,15 @@ Keep responses very concise, conversational, and direct.`,
       if (data) {
         const parsed = JSON.parse(data);
         set((state) => ({
-          ai: { ...state.ai, ...parsed.ai },
+          ai: {
+            ...state.ai,
+            ...parsed.ai,
+            allowVisionAi: parsed.ai?.allowVisionAi ?? state.ai.allowVisionAi,
+            visionMaxEdgePx: parsed.ai?.visionMaxEdgePx ?? state.ai.visionMaxEdgePx,
+            visionModel: parsed.ai?.visionModel ?? state.ai.visionModel,
+            debugSaveVisionStills:
+              parsed.ai?.debugSaveVisionStills ?? state.ai.debugSaveVisionStills,
+          },
           voice: { ...state.voice, ...parsed.voice },
           robot: {
             ...state.robot,

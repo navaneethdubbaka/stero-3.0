@@ -3,7 +3,9 @@ package com.abiogenesis.companion
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import android.os.SystemClock
+import android.util.Base64
 import android.util.Log
 import android.view.View.MeasureSpec
 import android.widget.FrameLayout
@@ -28,6 +30,9 @@ import com.google.mediapipe.tasks.vision.core.ImageProcessingOptions
 import com.google.mediapipe.tasks.vision.core.RunningMode
 import com.google.mediapipe.tasks.vision.poselandmarker.PoseLandmarker
 import com.google.mediapipe.tasks.vision.poselandmarker.PoseLandmarkerResult
+import java.io.ByteArrayOutputStream
+import java.io.File
+import java.io.FileOutputStream
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
@@ -50,6 +55,22 @@ class PoseEvent(
     }
 }
 
+/** JPEG still capture result for Vision AI (Page 6). */
+class StillCapturedEvent(
+    surfaceId: Int,
+    viewId: Int,
+    private val eventMap: WritableMap
+) : Event<StillCapturedEvent>(surfaceId, viewId) {
+
+    override fun getEventName(): String = "onStillCaptured"
+
+    override fun getEventData(): WritableMap? = eventMap
+
+    override fun dispatch(rctEventEmitter: RCTEventEmitter) {
+        rctEventEmitter.receiveEvent(viewTag, eventName, eventMap)
+    }
+}
+
 class VisionCameraView(context: Context) : FrameLayout(context) {
 
     private val previewView = PreviewView(context)
@@ -59,6 +80,10 @@ class VisionCameraView(context: Context) : FrameLayout(context) {
     private var cameraExecutor: ExecutorService? = null
     private var isUsingFrontCamera = true
     private var isCameraStarted = false
+
+    /** Latest analysis frame for Vision AI still capture (ARGB copy). */
+    private val frameLock = Any()
+    private var lastFrameBitmap: Bitmap? = null
 
     init {
         // Force COMPATIBLE (TextureView) implementation mode
@@ -218,6 +243,11 @@ class VisionCameraView(context: Context) : FrameLayout(context) {
                         try {
                             // Asynchronously convert YUV_420_888 ImageProxy to ARGB_8888 Bitmap
                             val bitmap = yuv420ToBitmap(mediaImage)
+                            // Keep a copy for Vision AI still capture (Page 6)
+                            synchronized(frameLock) {
+                                lastFrameBitmap?.recycle()
+                                lastFrameBitmap = bitmap.copy(Bitmap.Config.ARGB_8888, false)
+                            }
                             // Pass converted bitmap to MediaPipe
                             val mpImage = BitmapImageBuilder(bitmap).build()
                             val imageProcessingOptions = ImageProcessingOptions.builder()
@@ -360,6 +390,102 @@ class VisionCameraView(context: Context) : FrameLayout(context) {
         return android.graphics.BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
     }
 
+    /**
+     * Encode the latest analysis frame as JPEG base64 for JS Vision AI.
+     * Runs on the camera executor; result arrives via onStillCaptured.
+     */
+    fun captureStill(requestId: String, maxEdgePx: Int, jpegQuality: Int, saveDebug: Boolean) {
+        val executor = cameraExecutor
+        if (executor == null || executor.isShutdown) {
+            dispatchStillEvent(requestId, null, 0, 0, "Camera not ready")
+            return
+        }
+        executor.execute {
+            try {
+                val source = synchronized(frameLock) {
+                    lastFrameBitmap?.copy(Bitmap.Config.ARGB_8888, false)
+                }
+                if (source == null) {
+                    dispatchStillEvent(requestId, null, 0, 0, "No frame available yet")
+                    return@execute
+                }
+
+                val edge = maxEdgePx.coerceIn(64, 2048)
+                val quality = jpegQuality.coerceIn(40, 95)
+                val scaled = scaleBitmapToMaxEdge(source, edge)
+                if (scaled !== source) {
+                    source.recycle()
+                }
+
+                val jpegStream = ByteArrayOutputStream()
+                scaled.compress(Bitmap.CompressFormat.JPEG, quality, jpegStream)
+                val jpegBytes = jpegStream.toByteArray()
+                val w = scaled.width
+                val h = scaled.height
+
+                if (saveDebug) {
+                    try {
+                        val dir = File(context.cacheDir, "vision_debug")
+                        if (!dir.exists()) dir.mkdirs()
+                        val file = File(dir, "still_${System.currentTimeMillis()}.jpg")
+                        FileOutputStream(file).use { it.write(jpegBytes) }
+                        Log.i("VisionCameraView", "Debug still saved: ${file.absolutePath}")
+                    } catch (e: Exception) {
+                        Log.w("VisionCameraView", "Failed to save debug still", e)
+                    }
+                }
+
+                scaled.recycle()
+                val b64 = Base64.encodeToString(jpegBytes, Base64.NO_WRAP)
+                dispatchStillEvent(requestId, b64, w, h, null)
+            } catch (e: Exception) {
+                Log.e("VisionCameraView", "captureStill failed", e)
+                dispatchStillEvent(requestId, null, 0, 0, e.message ?: "capture failed")
+            }
+        }
+    }
+
+    private fun scaleBitmapToMaxEdge(src: Bitmap, maxEdge: Int): Bitmap {
+        val longEdge = maxOf(src.width, src.height)
+        if (longEdge <= maxEdge) return src
+        val scale = maxEdge.toFloat() / longEdge.toFloat()
+        val w = (src.width * scale).toInt().coerceAtLeast(1)
+        val h = (src.height * scale).toInt().coerceAtLeast(1)
+        return Bitmap.createScaledBitmap(src, w, h, true)
+    }
+
+    private fun dispatchStillEvent(
+        requestId: String,
+        base64: String?,
+        width: Int,
+        height: Int,
+        error: String?
+    ) {
+        val eventData = Arguments.createMap().apply {
+            putString("requestId", requestId)
+            if (base64 != null) {
+                putString("base64", base64)
+            } else {
+                putNull("base64")
+            }
+            putInt("width", width)
+            putInt("height", height)
+            if (error != null) {
+                putString("error", error)
+            } else {
+                putNull("error")
+            }
+        }
+        val reactContext = context as? ReactContext ?: return
+        try {
+            val surfaceId = UIManagerHelper.getSurfaceId(this)
+            val eventDispatcher = UIManagerHelper.getEventDispatcherForReactTag(reactContext, id)
+            eventDispatcher?.dispatchEvent(StillCapturedEvent(surfaceId, id, eventData))
+        } catch (e: Exception) {
+            Log.e("VisionCameraView", "Failed to dispatch StillCapturedEvent", e)
+        }
+    }
+
     private fun processPoseResult(result: PoseLandmarkerResult) {
         val landmarksList = result.landmarks()
         val eventData = Arguments.createMap()
@@ -461,6 +587,10 @@ class VisionCameraView(context: Context) : FrameLayout(context) {
 
     fun cleanup() {
         isCameraStarted = false
+        synchronized(frameLock) {
+            lastFrameBitmap?.recycle()
+            lastFrameBitmap = null
+        }
         cameraExecutor?.shutdown()
         cameraExecutor = null
         try {

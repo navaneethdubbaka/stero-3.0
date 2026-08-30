@@ -23,4 +23,8 @@ export {
 export { TrackingEngine } from './TrackingEngine';
 export type { TrackingListener } from './TrackingEngine';
 export { VisionCameraView } from './VisionCameraView';
-export type { PoseDetectedEvent } from './VisionCameraView';
+export type { PoseDetectedEvent, StillCapturedEvent } from './VisionCameraView';
+export { captureStill, hasStillCaptureHost } from './captureStill';
+export type { StillCaptureResult } from './captureStill';
+export { VisionAiService } from './VisionAiService';
+export type { VisionIntent } from './VisionAiService';

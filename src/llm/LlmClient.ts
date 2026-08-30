@@ -1,6 +1,10 @@
+export type ChatContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string } };
+
 export interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
-  content: string;
+  content: string | ChatContentPart[];
 }
 
 export interface ChatCompletionRequest {
@@ -8,6 +12,25 @@ export interface ChatCompletionRequest {
   messages: ChatMessage[];
   temperature?: number;
   max_tokens?: number;
+}
+
+/** Thrown when the provider rejects multimodal / image payloads. */
+export class VisionImageUnsupportedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'VisionImageUnsupportedError';
+  }
+}
+
+function looksLikeImageUnsupported(status: number, body: string): boolean {
+  const lower = body.toLowerCase();
+  return (
+    status === 400 ||
+    status === 415 ||
+    /image|vision|multimodal|unsupported.*(content|media|modality)|invalid.*image|does not support/i.test(
+      lower
+    )
+  );
 }
 
 class LlmClient {
@@ -84,7 +107,11 @@ class LlmClient {
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => '');
-      throw new Error(`Chat completion failed: ${response.status} ${response.statusText}. Details: ${errorText}`);
+      const detail = `Chat completion failed: ${response.status} ${response.statusText}. Details: ${errorText}`;
+      if (looksLikeImageUnsupported(response.status, errorText)) {
+        throw new VisionImageUnsupportedError(detail);
+      }
+      throw new Error(detail);
     }
 
     const responseData = await response.json();
