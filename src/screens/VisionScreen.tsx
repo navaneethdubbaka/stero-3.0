@@ -4,6 +4,7 @@ import {
   View,
   Text,
   TouchableOpacity,
+  Pressable,
   PermissionsAndroid,
   Platform,
   ActivityIndicator,
@@ -29,13 +30,14 @@ export const VisionScreen: React.FC<VisionScreenProps> = ({ navigation }) => {
   const offset = useTrackingStore((s) => s.offset);
   const distanceZone = useTrackingStore((s) => s.distanceZone);
   const shoulderWidth = useTrackingStore((s) => s.shoulderWidth);
-  const landmarks = useTrackingStore((s) => s.landmarks);
   const deadband = useTrackingStore((s) => s.deadband);
   const steerZone = useTrackingStore((s) => s.steerZone);
   const estimatedDistanceM = useTrackingStore((s) => s.estimatedDistanceM);
   const distanceIntent = useTrackingStore((s) => s.distanceIntent);
   const confidence = useTrackingStore((s) => s.confidence);
   const errorMsg = useTrackingStore((s) => s.error);
+  const people = useTrackingStore((s) => s.people);
+  const lockedTrackId = useTrackingStore((s) => s.lockedTrackId);
   const isConnected = useRobotStore((s) => s.isConnected);
   const followEnabled = useFollowStore((s) => s.enabled);
   const followStatus = useFollowStore((s) => s.status);
@@ -94,6 +96,14 @@ export const VisionScreen: React.FC<VisionScreenProps> = ({ navigation }) => {
     setDimensions({ width, height });
   };
 
+  const handleLockTap = (event: { nativeEvent: { locationX: number; locationY: number } }) => {
+    if (dimensions.width <= 0 || dimensions.height <= 0) return;
+    const { locationX, locationY } = event.nativeEvent;
+    const lmX = 1 - locationX / dimensions.width;
+    const lmY = locationY / dimensions.height;
+    TrackingEngine.lockAtPoint(lmX, lmY);
+  };
+
   const getXY = (landmark: Landmark) => {
     if (!landmark || dimensions.width === 0) return { x: 0, y: 0 };
     const mirroredX = 1 - landmark.x;
@@ -103,84 +113,95 @@ export const VisionScreen: React.FC<VisionScreenProps> = ({ navigation }) => {
     };
   };
 
-  const renderSkeleton = () => {
-    if (!targetLocked || landmarks.length === 0) {
+  const renderPeopleHud = () => {
+    if (!people || people.length === 0 || dimensions.width === 0) {
       return null;
     }
 
-    const lines: any[] = [];
-    const circles: any[] = [];
+    const boxes: React.ReactNode[] = [];
+    const lines: React.ReactNode[] = [];
+    const circles: React.ReactNode[] = [];
 
-    const addLine = (i1: number, i2: number, key: string) => {
-      if (landmarks[i1] && landmarks[i2]) {
-        const p1 = getXY(landmarks[i1]);
-        const p2 = getXY(landmarks[i2]);
-        lines.push(
-          <Line
-            key={key}
-            x1={p1.x}
-            y1={p1.y}
-            x2={p2.x}
-            y2={p2.y}
-            stroke="#00FFFF"
-            strokeWidth="3"
-            opacity="0.8"
-          />
-        );
-      }
-    };
-
-    addLine(11, 12, 'shoulders');
-    addLine(11, 13, 'left-upper-arm');
-    addLine(13, 15, 'left-forearm');
-    addLine(12, 14, 'right-upper-arm');
-    addLine(14, 16, 'right-forearm');
-    addLine(11, 23, 'left-torso');
-    addLine(12, 24, 'right-torso');
-    addLine(23, 24, 'hips');
-    addLine(23, 25, 'left-thigh');
-    addLine(25, 27, 'left-calf');
-    addLine(24, 26, 'right-thigh');
-    addLine(26, 28, 'right-calf');
-
-    const jointsToDraw = [11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28];
-    jointsToDraw.forEach((idx) => {
-      if (landmarks[idx]) {
-        const pt = getXY(landmarks[idx]);
-        circles.push(
-          <Circle
-            key={`joint-${idx}`}
-            cx={pt.x}
-            cy={pt.y}
-            r="6"
-            fill="#FF007F"
-            stroke="#FFFFFF"
-            strokeWidth="1.5"
-          />
-        );
-      }
-    });
-
-    if (landmarks[0]) {
-      const nosePt = getXY(landmarks[0]);
-      circles.push(
-        <Circle
-          key="joint-nose"
-          cx={nosePt.x}
-          cy={nosePt.y}
-          r="8"
-          fill="#00FFC8"
-          stroke="#FFFFFF"
-          strokeWidth="1.5"
+    people.forEach((person) => {
+      const locked = person.trackId === lockedTrackId;
+      const color = locked ? '#00FFFF' : '#5A5A6A';
+      const opacity = locked ? 1 : 0.35;
+      const b = person.bbox;
+      const left = (1 - (b.x + b.w)) * dimensions.width;
+      const top = b.y * dimensions.height;
+      const width = b.w * dimensions.width;
+      const height = b.h * dimensions.height;
+      boxes.push(
+        <View
+          key={`box-${person.trackId}`}
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            left,
+            top,
+            width,
+            height,
+            borderWidth: locked ? 3 : 1,
+            borderColor: color,
+            opacity,
+          }}
         />
       );
-    }
+
+      const lms = person.landmarks;
+      const addLine = (i1: number, i2: number, key: string) => {
+        if (lms[i1] && lms[i2]) {
+          const p1 = getXY(lms[i1]);
+          const p2 = getXY(lms[i2]);
+          lines.push(
+            <Line
+              key={`${person.trackId}-${key}`}
+              x1={p1.x}
+              y1={p1.y}
+              x2={p2.x}
+              y2={p2.y}
+              stroke={color}
+              strokeWidth={locked ? 3 : 2}
+              opacity={opacity}
+            />
+          );
+        }
+      };
+      addLine(11, 12, 'shoulders');
+      addLine(11, 13, 'left-upper-arm');
+      addLine(13, 15, 'left-forearm');
+      addLine(12, 14, 'right-upper-arm');
+      addLine(14, 16, 'right-forearm');
+      addLine(11, 23, 'left-torso');
+      addLine(12, 24, 'right-torso');
+      addLine(23, 24, 'hips');
+
+      const joints = locked ? [11, 12, 13, 14, 15, 16, 23, 24] : [11, 12];
+      joints.forEach((idx) => {
+        if (lms[idx]) {
+          const pt = getXY(lms[idx]);
+          circles.push(
+            <Circle
+              key={`${person.trackId}-j-${idx}`}
+              cx={pt.x}
+              cy={pt.y}
+              r={locked ? 6 : 4}
+              fill={locked ? '#FF007F' : '#5A5A6A'}
+              opacity={opacity}
+            />
+          );
+        }
+      });
+    });
 
     return (
-      <Svg style={StyleSheet.absoluteFill}>
-        {lines}
-        {circles}
-      </Svg>
+      <>
+        {boxes}
+        <Svg style={StyleSheet.absoluteFill} pointerEvents="none">
+          {lines}
+          {circles}
+        </Svg>
+      </>
     );
   };
 
@@ -211,11 +232,15 @@ export const VisionScreen: React.FC<VisionScreenProps> = ({ navigation }) => {
   const deadbandLeftPct = Math.max(0, Math.min(100, (-deadband + 0.5) * 100));
   const deadbandRightPct = Math.max(0, Math.min(100, (deadband + 0.5) * 100));
 
-  const statusLabel = targetLocked
-    ? personFound
-      ? 'TARGET LOCKED'
-      : 'HOLDING LOCK'
-    : 'SEARCHING...';
+  const statusLabel = lockedTrackId != null
+    ? targetLocked
+      ? personFound
+        ? `LOCKED #${lockedTrackId}`
+        : `HOLDING #${lockedTrackId}`
+      : `SEARCHING #${lockedTrackId}`
+    : people && people.length > 0
+      ? 'TAP TO LOCK'
+      : 'SEARCHING...';
 
   const steerLabel =
     steerZone === 'CENTER'
@@ -345,7 +370,9 @@ export const VisionScreen: React.FC<VisionScreenProps> = ({ navigation }) => {
 
       <View style={styles.cameraContainer} onLayout={handleLayout}>
         <VisionCameraView style={StyleSheet.absoluteFill} onPoseDetected={handlePoseDetected} />
-        {renderSkeleton()}
+        <Pressable style={StyleSheet.absoluteFill} onPress={handleLockTap}>
+          {renderPeopleHud()}
+        </Pressable>
 
         <View style={styles.hudOverlay} pointerEvents="none">
           <View style={styles.hudCornerTopLeft} />

@@ -22,6 +22,8 @@ jest.mock('../src/robot/RobotController', () => ({
 jest.mock('../src/vision/TrackingEngine', () => ({
   TrackingEngine: {
     subscribe: jest.fn(() => jest.fn()),
+    lockNearestCenter: jest.fn(),
+    clearLock: jest.fn(),
   },
 }));
 
@@ -71,6 +73,8 @@ const applySnap = (overrides: Partial<TrackingSnapshot>) => {
     lostMs: 0,
     error: null,
     lastUpdatedAt: Date.now(),
+    people: [],
+    lockedTrackId: null,
     ...overrides,
   });
 };
@@ -98,6 +102,7 @@ describe('FollowMode', () => {
         curveGain: 1.0,
         maxRotateBurstMs: ANTI_SPIN_MS,
         motorSpeed: 150,
+        searchOnLost: 'wait',
       },
     }));
     jest.clearAllMocks();
@@ -210,5 +215,42 @@ describe('FollowMode', () => {
     expect(ok).toBe(false);
     expect(FollowMode.getLastStartBlock()).toBe('battery');
     expect(RobotController.requestFollowDrive).not.toHaveBeenCalled();
+  });
+
+  it('searchOnLost wait issues S and does not rotate', () => {
+    useSettingsStore.setState((s) => ({
+      robot: { ...s.robot, searchOnLost: 'wait' },
+    }));
+    applySnap({ targetLocked: false, personFound: false, lockedTrackId: 1 });
+    FollowMode.start();
+    expect(useFollowStore.getState().status).toBe('SEARCHING');
+    expect(RobotController.requestFollowDrive).toHaveBeenCalledWith('S');
+    expect(RobotController.requestFollowDrive).not.toHaveBeenCalledWith('L');
+    expect(RobotController.requestFollowDrive).not.toHaveBeenCalledWith('R');
+  });
+
+  it('searchOnLost rotate stops after anti-spin / budget', () => {
+    useSettingsStore.setState((s) => ({
+      robot: { ...s.robot, searchOnLost: 'rotate', maxRotateBurstMs: ANTI_SPIN_MS },
+    }));
+    const t0 = Date.now();
+    jest.setSystemTime(t0);
+    applySnap({ targetLocked: false, personFound: false, offset: -0.2, lockedTrackId: 1 });
+    FollowMode.start();
+    expect(RobotController.requestFollowDrive).toHaveBeenCalledWith('L');
+
+    jest.setSystemTime(t0 + ANTI_SPIN_MS);
+    jest.advanceTimersByTime(100);
+    expect(RobotController.requestFollowDrive).toHaveBeenCalledWith('S');
+  });
+
+  it('searchOnLost off stops Follow when lock is lost', () => {
+    useSettingsStore.setState((s) => ({
+      robot: { ...s.robot, searchOnLost: 'off' },
+    }));
+    applySnap({ targetLocked: false, personFound: false });
+    FollowMode.start();
+    expect(FollowMode.isEnabled()).toBe(false);
+    expect(useFollowStore.getState().status).toBe('OFF');
   });
 });

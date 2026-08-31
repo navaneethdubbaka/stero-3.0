@@ -583,6 +583,25 @@ export const SettingsScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
       <Text style={styles.helperText}>
         Anti-spin: continuous in-place rotate stops after this duration until re-centered.
       </Text>
+
+      <Text style={styles.label}>Search on lost</Text>
+      <View style={styles.row}>
+        {(['wait', 'rotate', 'off'] as const).map((mode) => (
+          <TouchableOpacity
+            key={mode}
+            style={[styles.choiceBtn, robot.searchOnLost === mode && styles.activeChoiceBtn]}
+            onPress={() => updateRobotSettings({ searchOnLost: mode })}
+          >
+            <Text style={[styles.choiceText, robot.searchOnLost === mode && styles.activeChoiceText]}>
+              {mode.toUpperCase()}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+      <Text style={styles.helperText}>
+        Default WAIT: stop motors and keep lock until the same person reappears. ROTATE: short
+        turns then wait (never spins forever). OFF: drop lock and stop Follow.
+      </Text>
     </View>
   );
 
@@ -802,7 +821,7 @@ export const SettingsScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
     const usb = UsbSerialService.getStatus();
     const payload = {
       app: 'ABIOGENESIS',
-      version: '2.3.0',
+      version: '2.4.0',
       at: new Date().toISOString(),
       usb: {
         isConnected: usb.isConnected,

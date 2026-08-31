@@ -27,6 +27,8 @@ interface VoiceSettings {
   volume: number;
 }
 
+export type SearchOnLost = 'off' | 'rotate' | 'wait';
+
 interface RobotSettings {
   followDistance: number;
   trackingSensitivity: number;
@@ -41,6 +43,8 @@ interface RobotSettings {
   curveGain: number;
   /** Max continuous spin-in-place before forced stop (ms). */
   maxRotateBurstMs: number;
+  /** Lost-target policy. Default wait — do not spin forever. */
+  searchOnLost: SearchOnLost;
 }
 
 interface DisplaySettings {
@@ -104,6 +108,7 @@ Keep responses very concise, conversational, and direct.`,
     followMinPwm: 80,
     curveGain: 1.0,
     maxRotateBurstMs: 2500,
+    searchOnLost: 'wait' as SearchOnLost,
   },
   display: {
     faceStyle: 'default',
@@ -199,6 +204,12 @@ Keep responses very concise, conversational, and direct.`,
             typeof savedRobot.maxRotateBurstMs === 'number'
               ? savedRobot.maxRotateBurstMs
               : state.robot.maxRotateBurstMs,
+          searchOnLost:
+            savedRobot.searchOnLost === 'off' ||
+            savedRobot.searchOnLost === 'rotate' ||
+            savedRobot.searchOnLost === 'wait'
+              ? savedRobot.searchOnLost
+              : state.robot.searchOnLost,
         },
         display: { ...state.display, ...parsed.display },
         notifications: {

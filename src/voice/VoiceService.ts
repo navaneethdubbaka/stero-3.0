@@ -276,6 +276,7 @@ class VoiceService {
     if (/^follow(\s+me)?[.!?]*$/i.test(normalized) || /\bfollow\s+me\b/i.test(normalized)) {
       // eslint-disable-next-line @typescript-eslint/no-var-requires
       const { FollowMode } = require('../robot/FollowMode');
+      const { TrackingEngine } = require('../vision/TrackingEngine');
       const { useRobotStore } = require('../store/useRobotStore');
       if (!useRobotStore.getState().isConnected) {
         conversationStore.addMessage('user', text);
@@ -283,6 +284,7 @@ class VoiceService {
         await this.speak('I need USB connected to follow.');
         return;
       }
+      TrackingEngine.lockNearestCenter(true);
       const started = FollowMode.start();
       if (!started && FollowMode.getLastStartBlock() === 'battery') {
         conversationStore.addMessage('user', text);

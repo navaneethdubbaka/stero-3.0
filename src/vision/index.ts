@@ -1,3 +1,11 @@
+export {
+  LOST_TIMEOUT_MS,
+  LOCK_HOLD_MS,
+  DISTANCE_INTENT_TOLERANCE_M,
+  DISTANCE_SCALE_K,
+  DISTANCE_MIN_M,
+  DISTANCE_MAX_M,
+} from './types';
 export type {
   Landmark,
   DistanceZone,
@@ -5,14 +13,10 @@ export type {
   DistanceIntent,
   TrackingEvent,
   TrackingSnapshot,
+  TrackedPerson,
+  BBox,
 } from './types';
-export {
-  LOST_TIMEOUT_MS,
-  DISTANCE_INTENT_TOLERANCE_M,
-  DISTANCE_SCALE_K,
-  DISTANCE_MIN_M,
-  DISTANCE_MAX_M,
-} from './types';
+export { PersonTracker, iou, bboxFromLandmarks } from './PersonTracker';
 export {
   computeDeadband,
   computeSteerZone,

@@ -1,10 +1,12 @@
-import type { PoseDetectedEvent } from './VisionCameraView';
+import type { PersonDetectionEvent, PoseDetectedEvent } from './VisionCameraView';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useTrackingStore } from '../store/useTrackingStore';
 import {
+  LOCK_HOLD_MS,
   LOST_TIMEOUT_MS,
   TrackingEvent,
   TrackingSnapshot,
+  TrackedPerson,
   DistanceZone,
 } from './types';
 import {
@@ -14,6 +16,7 @@ import {
   computeSteerZone,
   estimateDistanceM,
 } from './trackingMath';
+import { PersonTracker } from './PersonTracker';
 
 export type TrackingListener = (
   event: TrackingEvent,
@@ -21,89 +24,83 @@ export type TrackingListener = (
 ) => void;
 
 /**
- * Pose → app state. VisionScreen (or a future Face host) forwards native
- * pose events here. Never drives motors.
+ * Pose → app state. Never drives motors.
+ * Identity lock (`lockedTrackId`) is separate from 800ms HUD fade.
  */
 class TrackingEngineImpl {
   private listeners = new Set<TrackingListener>();
   private lostTimer: ReturnType<typeof setTimeout> | null = null;
   private lastSeenAt = 0;
   private wasLocked = false;
+  private lockedTrackId: number | null = null;
+  private emittedLostForLock = false;
 
-  ingest(raw: PoseDetectedEvent): void {
-    const now = Date.now();
-    const settings = useSettingsStore.getState().robot;
-    const deadband = computeDeadband(settings.trackingSensitivity);
-    const personFound = !!raw.personFound;
-    const offset = raw.offset ?? 0;
-    const shoulderWidth = raw.shoulderWidth ?? 0;
-    const distanceZone = (raw.distanceZone ?? 'FAR') as DistanceZone;
-    const landmarks = raw.landmarks ?? [];
-    const error = raw.error ?? null;
+  ingest(raw: PoseDetectedEvent, now: number = Date.now()): void {
+    const detections = this.toDetections(raw);
+    const tracks = PersonTracker.step(detections, now, this.lockedTrackId);
+    this.publish(tracks, raw.error ?? null, now);
+  }
 
-    if (personFound) {
-      this.lastSeenAt = now;
-      this.clearLostTimer();
-      this.scheduleLostTimer();
+  lockTrack(trackId: number): void {
+    this.lockedTrackId = trackId;
+    this.emittedLostForLock = false;
+    this.publish(PersonTracker.getTracks(), null, Date.now());
+  }
+
+  /** Lock visible person nearest frame center. `force` replaces an existing lock. */
+  lockNearestCenter(force: boolean = false): number | null {
+    const visible = PersonTracker.getTracks().filter((t) => t.visible);
+    if (visible.length === 0) {
+      if (force) {
+        this.lockedTrackId = null;
+      }
+      return this.lockedTrackId;
     }
-
-    const lostMs =
-      this.lastSeenAt === 0 ? now : Math.max(0, now - this.lastSeenAt);
-
-    const estimatedDistanceM = personFound
-      ? estimateDistanceM(shoulderWidth)
-      : useTrackingStore.getState().estimatedDistanceM;
-
-    const snapshot: TrackingSnapshot = {
-      personFound,
-      targetLocked: personFound || (this.wasLocked && lostMs < LOST_TIMEOUT_MS),
-      offset,
-      shoulderWidth,
-      distanceZone,
-      landmarks,
-      confidence: personFound ? computeConfidence(landmarks) : 0,
-      deadband,
-      steerZone: computeSteerZone(offset, deadband),
-      estimatedDistanceM: personFound
-        ? estimatedDistanceM
-        : useTrackingStore.getState().estimatedDistanceM,
-      distanceIntent: computeDistanceIntent(
-        personFound ? estimatedDistanceM : useTrackingStore.getState().estimatedDistanceM,
-        settings.followDistance
-      ),
-      lostMs: personFound ? 0 : lostMs,
-      error,
-      lastUpdatedAt: now,
-    };
-
-    // While still within grace after last sighting, keep prior landmarks for HUD fade
-    if (!personFound && this.wasLocked && lostMs < LOST_TIMEOUT_MS) {
-      const prev = useTrackingStore.getState();
-      snapshot.landmarks = prev.landmarks;
-      snapshot.offset = prev.offset;
-      snapshot.shoulderWidth = prev.shoulderWidth;
-      snapshot.distanceZone = prev.distanceZone;
-      snapshot.steerZone = prev.steerZone;
-      snapshot.confidence = prev.confidence * 0.5;
+    if (this.lockedTrackId != null && !force) {
+      return this.lockedTrackId;
     }
+    visible.sort((a, b) => Math.abs(a.offset) - Math.abs(b.offset));
+    this.lockedTrackId = visible[0].trackId;
+    this.emittedLostForLock = false;
+    this.publish(PersonTracker.getTracks(), null, Date.now());
+    return this.lockedTrackId;
+  }
 
-    if (!personFound && lostMs >= LOST_TIMEOUT_MS) {
-      snapshot.targetLocked = false;
-      snapshot.landmarks = [];
-      snapshot.confidence = 0;
-      snapshot.steerZone = 'CENTER';
-      snapshot.offset = 0;
+  /** Landmark-normalized tap (x,y in 0..1, not mirrored). */
+  lockAtPoint(nx: number, ny: number): number | null {
+    const tracks = PersonTracker.getTracks().filter((t) => t.visible);
+    if (tracks.length === 0) return this.lockedTrackId;
+    const hit = tracks.find((t) => {
+      const b = t.bbox;
+      return nx >= b.x && nx <= b.x + b.w && ny >= b.y && ny <= b.y + b.h;
+    });
+    if (hit) {
+      this.lockTrack(hit.trackId);
+      return hit.trackId;
     }
-
-    useTrackingStore.getState().applySnapshot(snapshot);
-
-    if (personFound && !this.wasLocked) {
-      this.wasLocked = true;
-      this.emit('PERSON_FOUND', snapshot);
-    } else if (personFound && this.wasLocked) {
-      this.emit('TARGET_UPDATED', snapshot);
+    let best = tracks[0];
+    let bestD = Infinity;
+    for (const t of tracks) {
+      const cx = t.bbox.x + t.bbox.w / 2;
+      const cy = t.bbox.y + t.bbox.h / 2;
+      const d = Math.hypot(cx - nx, cy - ny);
+      if (d < bestD) {
+        bestD = d;
+        best = t;
+      }
     }
-    // PERSON_LOST fired from lost timer
+    this.lockTrack(best.trackId);
+    return best.trackId;
+  }
+
+  clearLock(): void {
+    this.lockedTrackId = null;
+    this.emittedLostForLock = false;
+    this.publish(PersonTracker.getTracks(), null, Date.now());
+  }
+
+  getLockedTrackId(): number | null {
+    return this.lockedTrackId;
   }
 
   subscribe(listener: TrackingListener): () => void {
@@ -117,12 +114,148 @@ class TrackingEngineImpl {
     this.clearLostTimer();
     this.lastSeenAt = 0;
     this.wasLocked = false;
+    this.lockedTrackId = null;
+    this.emittedLostForLock = false;
+    PersonTracker.reset();
     useTrackingStore.getState().reset();
   }
 
   /** Test helper */
   getWasLocked(): boolean {
     return this.wasLocked;
+  }
+
+  private toDetections(raw: PoseDetectedEvent): PersonDetectionEvent[] {
+    if (raw.people && raw.people.length > 0) {
+      return raw.people;
+    }
+    if (raw.personFound) {
+      return [
+        {
+          offset: raw.offset ?? 0,
+          shoulderWidth: raw.shoulderWidth ?? 0,
+          distanceZone: raw.distanceZone ?? 'FAR',
+          landmarks: raw.landmarks ?? [],
+        },
+      ];
+    }
+    return [];
+  }
+
+  private publish(
+    tracks: TrackedPerson[],
+    error: string | null,
+    now: number
+  ): void {
+    const settings = useSettingsStore.getState().robot;
+    const deadband = computeDeadband(settings.trackingSensitivity);
+    const locked =
+      this.lockedTrackId != null
+        ? tracks.find((t) => t.trackId === this.lockedTrackId) ?? null
+        : null;
+    const anyVisible = tracks.some((t) => t.visible);
+
+    let personFound = false;
+    let targetLocked = false;
+    let primary: TrackedPerson | null = locked;
+    let lostMs = 0;
+
+    if (locked) {
+      personFound = locked.visible;
+      lostMs = locked.visible ? 0 : Math.max(0, now - locked.lastSeenAt);
+      targetLocked = locked.visible || lostMs < LOCK_HOLD_MS;
+      if (locked.visible) {
+        this.lastSeenAt = now;
+        this.clearLostTimer();
+        this.emittedLostForLock = false;
+      }
+    } else {
+      personFound = anyVisible;
+      primary =
+        tracks
+          .filter((t) => t.visible)
+          .sort((a, b) => Math.abs(a.offset) - Math.abs(b.offset))[0] ?? null;
+      if (personFound) {
+        this.lastSeenAt = now;
+        this.clearLostTimer();
+        this.scheduleLostTimer();
+        lostMs = 0;
+      } else {
+        lostMs =
+          this.lastSeenAt === 0 ? 0 : Math.max(0, now - this.lastSeenAt);
+      }
+      targetLocked = false;
+    }
+
+    const landmarks = primary?.landmarks ?? [];
+    const offset = primary?.offset ?? 0;
+    const shoulderWidth = primary?.shoulderWidth ?? 0;
+    const distanceZone = (primary?.distanceZone ?? 'FAR') as DistanceZone;
+    const estimatedDistanceM = primary
+      ? estimateDistanceM(shoulderWidth)
+      : useTrackingStore.getState().estimatedDistanceM;
+
+    const snapshot: TrackingSnapshot = {
+      personFound,
+      targetLocked,
+      offset,
+      shoulderWidth,
+      distanceZone,
+      landmarks,
+      confidence:
+        primary && primary.visible
+          ? computeConfidence(landmarks)
+          : primary
+            ? computeConfidence(landmarks) * 0.5
+            : 0,
+      deadband,
+      steerZone: computeSteerZone(offset, deadband),
+      estimatedDistanceM,
+      distanceIntent: computeDistanceIntent(estimatedDistanceM, settings.followDistance),
+      lostMs,
+      error,
+      lastUpdatedAt: now,
+      people: tracks,
+      lockedTrackId: this.lockedTrackId,
+    };
+
+    if (locked && !targetLocked && lostMs >= LOST_TIMEOUT_MS) {
+      snapshot.landmarks = [];
+      snapshot.steerZone = 'CENTER';
+    }
+
+    if (!locked && !personFound && lostMs >= LOST_TIMEOUT_MS) {
+      snapshot.landmarks = [];
+      snapshot.offset = 0;
+      snapshot.confidence = 0;
+      snapshot.steerZone = 'CENTER';
+    }
+
+    useTrackingStore.getState().applySnapshot(snapshot);
+
+    if (locked) {
+      if (locked.visible && !this.wasLocked) {
+        this.wasLocked = true;
+        this.emit('PERSON_FOUND', snapshot);
+      } else if (locked.visible && this.wasLocked) {
+        this.emit('TARGET_UPDATED', snapshot);
+      } else if (!targetLocked && this.wasLocked && !this.emittedLostForLock) {
+        this.wasLocked = false;
+        this.emittedLostForLock = true;
+        // Release the lock once the target is gone for good so Follow can
+        // re-acquire another person instead of searching forever.
+        this.lockedTrackId = null;
+        this.emit('PERSON_LOST', snapshot);
+      }
+      return;
+    }
+
+    if (personFound && !this.wasLocked) {
+      this.wasLocked = true;
+      this.emit('PERSON_FOUND', snapshot);
+    } else if (personFound && this.wasLocked) {
+      this.emit('TARGET_UPDATED', snapshot);
+    }
   }
 
   private scheduleLostTimer(): void {
@@ -134,36 +267,33 @@ class TrackingEngineImpl {
 
   private handleLostTimeout(): void {
     this.lostTimer = null;
+    if (this.lockedTrackId != null) {
+      return;
+    }
     if (!this.wasLocked) {
       return;
     }
-
     this.wasLocked = false;
-    const now = Date.now();
-    const settings = useSettingsStore.getState().robot;
-    const deadband = computeDeadband(settings.trackingSensitivity);
-    const snapshot: TrackingSnapshot = {
-      personFound: false,
-      targetLocked: false,
-      offset: 0,
-      shoulderWidth: 0,
-      distanceZone: 'FAR',
-      landmarks: [],
-      confidence: 0,
-      deadband,
-      steerZone: 'CENTER',
-      estimatedDistanceM: useTrackingStore.getState().estimatedDistanceM,
-      distanceIntent: computeDistanceIntent(
-        useTrackingStore.getState().estimatedDistanceM,
-        settings.followDistance
-      ),
-      lostMs: this.lastSeenAt ? now - this.lastSeenAt : LOST_TIMEOUT_MS,
-      error: null,
-      lastUpdatedAt: now,
-    };
-
-    useTrackingStore.getState().applySnapshot(snapshot);
-    this.emit('PERSON_LOST', snapshot);
+    this.publish(PersonTracker.getTracks(), null, Date.now());
+    const snapshot = useTrackingStore.getState();
+    this.emit('PERSON_LOST', {
+      personFound: snapshot.personFound,
+      targetLocked: snapshot.targetLocked,
+      offset: snapshot.offset,
+      shoulderWidth: snapshot.shoulderWidth,
+      distanceZone: snapshot.distanceZone,
+      landmarks: snapshot.landmarks,
+      confidence: snapshot.confidence,
+      deadband: snapshot.deadband,
+      steerZone: snapshot.steerZone,
+      estimatedDistanceM: snapshot.estimatedDistanceM,
+      distanceIntent: snapshot.distanceIntent,
+      lostMs: snapshot.lostMs,
+      error: snapshot.error,
+      lastUpdatedAt: snapshot.lastUpdatedAt,
+      people: snapshot.people,
+      lockedTrackId: snapshot.lockedTrackId,
+    });
   }
 
   private clearLostTimer(): void {

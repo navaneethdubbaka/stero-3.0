@@ -20,6 +20,8 @@ const base = (overrides: Partial<TrackingSnapshot> = {}): TrackingSnapshot => ({
   lostMs: 0,
   error: null,
   lastUpdatedAt: Date.now(),
+  people: [],
+  lockedTrackId: null,
   ...overrides,
 });
 

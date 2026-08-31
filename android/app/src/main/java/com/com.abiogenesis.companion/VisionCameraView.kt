@@ -19,6 +19,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.ReactContext
+import com.facebook.react.bridge.WritableArray
 import com.facebook.react.bridge.WritableMap
 import com.facebook.react.uimanager.UIManagerHelper
 import com.facebook.react.uimanager.events.Event
@@ -72,6 +73,11 @@ class StillCapturedEvent(
 }
 
 class VisionCameraView(context: Context) : FrameLayout(context) {
+
+    companion object {
+        /** MediaPipe pose count cap — keep low for live FPS. */
+        const val MAX_POSES = 3
+    }
 
     private val previewView = PreviewView(context)
     private var cameraProvider: ProcessCameraProvider? = null
@@ -165,6 +171,8 @@ class VisionCameraView(context: Context) : FrameLayout(context) {
             val optionsBuilder = PoseLandmarker.PoseLandmarkerOptions.builder()
                 .setBaseOptions(baseOptionsBuilder.build())
                 .setRunningMode(RunningMode.LIVE_STREAM)
+                // Max 3 poses — FPS budget for Page 14 multi-person lock
+                .setNumPoses(MAX_POSES)
                 .setResultListener { result, _ ->
                     processPoseResult(result)
                 }
@@ -489,57 +497,102 @@ class VisionCameraView(context: Context) : FrameLayout(context) {
     private fun processPoseResult(result: PoseLandmarkerResult) {
         val landmarksList = result.landmarks()
         val eventData = Arguments.createMap()
+        val peopleArray = Arguments.createArray()
+        var primarySet = false
 
-        if (landmarksList != null && landmarksList.isNotEmpty()) {
-            val landmarks = landmarksList[0] // Primary person
-
-            // Calculate center offset and distance based on shoulders
-            // Left Shoulder is 11, Right Shoulder is 12
-            if (landmarks.size > 12) {
-                val leftShoulder = landmarks[11]
-                val rightShoulder = landmarks[12]
-
-                // Horizontal center: 0.5 is absolute center
-                val centerX = (leftShoulder.x() + rightShoulder.x()) / 2.0f
-                // Offset is target horizontal offset from screen center (-0.5 to 0.5)
-                val offset = centerX - 0.5f
-
-                // Shoulder width determines distance estimation
-                val shoulderWidth = Math.abs(leftShoulder.x() - rightShoulder.x())
-
-                // Calibrate close/medium/far zones
-                val distanceZone = when {
-                    shoulderWidth > 0.28f -> "CLOSE"
-                    shoulderWidth >= 0.14f -> "MEDIUM"
-                    else -> "FAR"
+        if (landmarksList != null) {
+            for (landmarks in landmarksList) {
+                val poseMap = buildPoseMap(landmarks) ?: continue
+                if (!primarySet) {
+                    eventData.putBoolean("personFound", true)
+                    eventData.putDouble("offset", poseMap.getDouble("offset"))
+                    eventData.putString("distanceZone", poseMap.getString("distanceZone") ?: "FAR")
+                    eventData.putDouble("shoulderWidth", poseMap.getDouble("shoulderWidth"))
+                    eventData.putArray("landmarks", copyKeypoints(landmarks))
+                    primarySet = true
                 }
-
-                eventData.putBoolean("personFound", true)
-                eventData.putDouble("offset", offset.toDouble())
-                eventData.putString("distanceZone", distanceZone)
-                eventData.putDouble("shoulderWidth", shoulderWidth.toDouble())
-
-                // Export simplified keypoints array to JS for drawing
-                val keypointsArray = Arguments.createArray()
-                for (landmark in landmarks) {
-                    val keypointMap = Arguments.createMap().apply {
-                        putDouble("x", landmark.x().toDouble())
-                        putDouble("y", landmark.y().toDouble())
-                        putDouble("z", landmark.z().toDouble())
-                        putDouble("presence", landmark.presence().orElse(0.0f).toDouble())
-                        putDouble("visibility", landmark.visibility().orElse(0.0f).toDouble())
-                    }
-                    keypointsArray.pushMap(keypointMap)
-                }
-                eventData.putArray("landmarks", keypointsArray)
-            } else {
-                setEmptyTrackingData(eventData)
+                peopleArray.pushMap(poseMap)
             }
-        } else {
-            setEmptyTrackingData(eventData)
         }
 
+        if (!primarySet) {
+            setEmptyTrackingData(eventData)
+        }
+        eventData.putArray("people", peopleArray)
         dispatchEventToJs(eventData)
+    }
+
+    /**
+     * @return pose map with landmarks, offset, shoulderWidth, distanceZone, bbox; null if no shoulders.
+     */
+    private fun buildPoseMap(landmarks: List<com.google.mediapipe.tasks.components.containers.NormalizedLandmark>): WritableMap? {
+        if (landmarks.size <= 12) return null
+        val leftShoulder = landmarks[11]
+        val rightShoulder = landmarks[12]
+        val centerX = (leftShoulder.x() + rightShoulder.x()) / 2.0f
+        val offset = centerX - 0.5f
+        val shoulderWidth = Math.abs(leftShoulder.x() - rightShoulder.x())
+        val distanceZone = when {
+            shoulderWidth > 0.28f -> "CLOSE"
+            shoulderWidth >= 0.14f -> "MEDIUM"
+            else -> "FAR"
+        }
+
+        var minX = 1.0
+        var minY = 1.0
+        var maxX = 0.0
+        var maxY = 0.0
+        var any = false
+        for (lm in landmarks) {
+            val vis = lm.visibility().orElse(1.0f)
+            if (vis < 0.2f) continue
+            any = true
+            minX = Math.min(minX, lm.x().toDouble())
+            minY = Math.min(minY, lm.y().toDouble())
+            maxX = Math.max(maxX, lm.x().toDouble())
+            maxY = Math.max(maxY, lm.y().toDouble())
+        }
+        if (!any) {
+            minX = 0.4
+            minY = 0.3
+            maxX = 0.6
+            maxY = 0.7
+        }
+        val pad = 0.04
+        minX = Math.max(0.0, minX - pad)
+        minY = Math.max(0.0, minY - pad)
+        maxX = Math.min(1.0, maxX + pad)
+        maxY = Math.min(1.0, maxY + pad)
+
+        val bbox = Arguments.createMap().apply {
+            putDouble("x", minX)
+            putDouble("y", minY)
+            putDouble("w", Math.max(0.02, maxX - minX))
+            putDouble("h", Math.max(0.02, maxY - minY))
+        }
+
+        return Arguments.createMap().apply {
+            putDouble("offset", offset.toDouble())
+            putString("distanceZone", distanceZone)
+            putDouble("shoulderWidth", shoulderWidth.toDouble())
+            putArray("landmarks", copyKeypoints(landmarks))
+            putMap("bbox", bbox)
+        }
+    }
+
+    private fun copyKeypoints(landmarks: List<com.google.mediapipe.tasks.components.containers.NormalizedLandmark>): WritableArray {
+        val keypointsArray = Arguments.createArray()
+        for (landmark in landmarks) {
+            val keypointMap = Arguments.createMap().apply {
+                putDouble("x", landmark.x().toDouble())
+                putDouble("y", landmark.y().toDouble())
+                putDouble("z", landmark.z().toDouble())
+                putDouble("presence", landmark.presence().orElse(0.0f).toDouble())
+                putDouble("visibility", landmark.visibility().orElse(0.0f).toDouble())
+            }
+            keypointsArray.pushMap(keypointMap)
+        }
+        return keypointsArray
     }
 
     private fun setEmptyTrackingData(eventData: WritableMap) {
@@ -548,6 +601,9 @@ class VisionCameraView(context: Context) : FrameLayout(context) {
         eventData.putString("distanceZone", "FAR")
         eventData.putDouble("shoulderWidth", 0.0)
         eventData.putArray("landmarks", Arguments.createArray())
+        if (!eventData.hasKey("people")) {
+            eventData.putArray("people", Arguments.createArray())
+        }
     }
 
     private fun sendErrorToJs(message: String) {
@@ -557,6 +613,7 @@ class VisionCameraView(context: Context) : FrameLayout(context) {
             putString("distanceZone", "FAR")
             putDouble("shoulderWidth", 0.0)
             putArray("landmarks", Arguments.createArray())
+            putArray("people", Arguments.createArray())
             putString("error", message)
         }
         dispatchEventToJs(eventData)
@@ -569,6 +626,7 @@ class VisionCameraView(context: Context) : FrameLayout(context) {
             putString("distanceZone", "FAR")
             putDouble("shoulderWidth", 0.0)
             putArray("landmarks", Arguments.createArray())
+            putArray("people", Arguments.createArray())
             putNull("error")
         }
         dispatchEventToJs(eventData)

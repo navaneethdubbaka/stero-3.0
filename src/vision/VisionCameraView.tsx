@@ -16,12 +16,28 @@ export interface Landmark {
   visibility: number;
 }
 
+export interface PoseBBox {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export interface PersonDetectionEvent {
+  offset: number;
+  shoulderWidth: number;
+  distanceZone: 'CLOSE' | 'MEDIUM' | 'FAR';
+  landmarks: Landmark[];
+  bbox?: PoseBBox;
+}
+
 export interface PoseDetectedEvent {
   personFound: boolean;
   offset: number;
   distanceZone: 'CLOSE' | 'MEDIUM' | 'FAR';
   shoulderWidth: number;
   landmarks: Landmark[];
+  people?: PersonDetectionEvent[];
   error?: string | null;
 }
 

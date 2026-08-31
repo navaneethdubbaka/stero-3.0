@@ -28,6 +28,8 @@ const initialSnapshot: TrackingSnapshot = {
   lostMs: 0,
   error: null,
   lastUpdatedAt: 0,
+  people: [],
+  lockedTrackId: null,
 };
 
 export const useTrackingStore = create<TrackingState>((set) => ({

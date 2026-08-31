@@ -22,6 +22,9 @@ const TICK_HZ = 18;
 /** Max absolute PWM change per wheel per tick. */
 const SLEW_STEP = 32;
 
+/** Search-on-lost rotate budget; then wait. */
+export const SEARCH_BUDGET_MS = 4000;
+
 export type FollowStartBlock = 'battery' | 'companion' | 'dispatch' | null;
 
 /**
@@ -34,12 +37,15 @@ class FollowModeImpl {
   private tickInterval: ReturnType<typeof setInterval> | null = null;
   private unsubTracking: (() => void) | null = null;
   private unsubConnected: (() => void) | null = null;
+  private unsubEmergency: (() => void) | null = null;
   private rotateStartedAt: number | null = null;
   private antiSpinLatched = false;
   private lastCommand: MovementDirection = 'S';
   private slewedLeft = 0;
   private slewedRight = 0;
   private lastStartBlock: FollowStartBlock = null;
+  private searchStartedAt: number | null = null;
+  private searchDir: MovementDirection = 'L';
 
   isEnabled(): boolean {
     return this.enabled;
@@ -91,9 +97,13 @@ class FollowModeImpl {
     this.enabled = true;
     this.antiSpinLatched = false;
     this.rotateStartedAt = null;
+    this.searchStartedAt = null;
+    this.searchDir = 'L';
     this.lastCommand = 'S';
     this.slewedLeft = 0;
     this.slewedRight = 0;
+
+    TrackingEngine.lockNearestCenter();
 
     // Lazy require avoids cycle with SleepSystem (which may stop Follow)
     // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -105,6 +115,15 @@ class FollowModeImpl {
     });
 
     this.tickInterval = setInterval(() => this.tick(), 1000 / TICK_HZ);
+
+    let prevEstop = useRobotStore.getState().emergencyActive;
+    this.unsubEmergency = useRobotStore.subscribe((state) => {
+      if (!prevEstop && state.emergencyActive && this.enabled) {
+        console.log('[FollowMode] E-stop — stopping follow');
+        this.stop();
+      }
+      prevEstop = state.emergencyActive;
+    });
 
     let prevConnected = useRobotStore.getState().isConnected;
     this.unsubConnected = useRobotStore.subscribe((state) => {
@@ -131,11 +150,13 @@ class FollowModeImpl {
     this.clearTimers();
     this.antiSpinLatched = false;
     this.rotateStartedAt = null;
+    this.searchStartedAt = null;
     this.lastCommand = 'S';
     this.slewedLeft = 0;
     this.slewedRight = 0;
     RobotController.requestFollowDrive('S');
     useFollowStore.getState().reset();
+    TrackingEngine.clearLock();
 
     try {
       // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -161,6 +182,10 @@ class FollowModeImpl {
       this.unsubConnected();
       this.unsubConnected = null;
     }
+    if (this.unsubEmergency) {
+      this.unsubEmergency();
+      this.unsubEmergency = null;
+    }
   }
 
   private tick(): void {
@@ -169,13 +194,76 @@ class FollowModeImpl {
     }
 
     const snapshot = this.readSnapshot();
+    if (!snapshot.lockedTrackId && (snapshot.people?.length ?? 0) > 0) {
+      TrackingEngine.lockNearestCenter();
+    }
+
+    const snap = this.readSnapshot();
     const useDiff = RobotController.getUseDifferentialDrive();
 
-    if (useDiff) {
-      this.tickDifferential(snapshot);
-    } else {
-      this.tickDiscrete(snapshot);
+    if (!snap.targetLocked) {
+      this.tickSearch(snap, useDiff);
+      return;
     }
+    this.searchStartedAt = null;
+
+    if (useDiff) {
+      this.tickDifferential(snap);
+    } else {
+      this.tickDiscrete(snap);
+    }
+  }
+
+  private tickSearch(snapshot: TrackingSnapshot, useDiff: boolean): void {
+    const robot = useSettingsStore.getState().robot;
+    const policy = robot.searchOnLost ?? 'wait';
+    if (policy === 'off') {
+      this.stop();
+      return;
+    }
+
+    const now = Date.now();
+    if (this.searchStartedAt === null) {
+      this.searchStartedAt = now;
+      this.searchDir = snapshot.offset < 0 ? 'L' : 'R';
+    }
+    const elapsed = now - this.searchStartedAt;
+    const maxBurst = robot.maxRotateBurstMs ?? ANTI_SPIN_MS;
+    const rotateCap = Math.min(SEARCH_BUDGET_MS, maxBurst);
+    const rotateAllowed = policy === 'rotate' && elapsed < rotateCap;
+
+    if (!rotateAllowed) {
+      this.lastCommand = 'S';
+      this.slewedLeft = 0;
+      this.slewedRight = 0;
+      if (useDiff) {
+        RobotController.requestFollowDiff(0, 0);
+      } else {
+        RobotController.requestFollowDrive('S');
+      }
+      this.mirrorStatus(snapshot, 'S');
+      return;
+    }
+
+    const dir: MovementDirection =
+      Math.floor(elapsed / 700) % 2 === 0 ? this.searchDir : this.searchDir === 'L' ? 'R' : 'L';
+    this.lastCommand = dir;
+    if (useDiff) {
+      const pwm = Math.max(40, robot.followMinPwm ?? 80);
+      if (dir === 'L') {
+        this.slewedLeft = -pwm;
+        this.slewedRight = pwm;
+      } else {
+        this.slewedLeft = pwm;
+        this.slewedRight = -pwm;
+      }
+      RobotController.requestFollowDiff(this.slewedLeft, this.slewedRight);
+    } else {
+      this.slewedLeft = 0;
+      this.slewedRight = 0;
+      RobotController.requestFollowDrive(dir);
+    }
+    this.mirrorStatus(snapshot, dir);
   }
 
   private tickDiscrete(snapshot: TrackingSnapshot): void {
@@ -251,6 +339,8 @@ class FollowModeImpl {
       lostMs: s.lostMs,
       error: s.error,
       lastUpdatedAt: s.lastUpdatedAt,
+      people: s.people ?? [],
+      lockedTrackId: s.lockedTrackId ?? null,
     };
   }
 

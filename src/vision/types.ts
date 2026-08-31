@@ -10,6 +10,25 @@ export type DistanceIntent = 'APPROACH' | 'HOLD' | 'TOO_CLOSE';
 
 export type TrackingEvent = 'PERSON_FOUND' | 'PERSON_LOST' | 'TARGET_UPDATED';
 
+export type BBox = {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+};
+
+/** One associated person for HUD / lock. */
+export type TrackedPerson = {
+  trackId: number;
+  landmarks: Landmark[];
+  offset: number;
+  shoulderWidth: number;
+  distanceZone: DistanceZone;
+  bbox: BBox;
+  visible: boolean;
+  lastSeenAt: number;
+};
+
 export type TrackingSnapshot = {
   personFound: boolean;
   targetLocked: boolean;
@@ -25,9 +44,15 @@ export type TrackingSnapshot = {
   lostMs: number;
   error: string | null;
   lastUpdatedAt: number;
+  people: TrackedPerson[];
+  lockedTrackId: number | null;
 };
 
+/** HUD fade of missing landmarks. */
 export const LOST_TIMEOUT_MS = 800;
+
+/** Identity lock: do not switch to another person during this occlusion. */
+export const LOCK_HOLD_MS = 2000;
 
 export const DISTANCE_INTENT_TOLERANCE_M = 0.25;
 
