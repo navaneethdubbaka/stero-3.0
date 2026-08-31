@@ -24,6 +24,8 @@ export class UsbSerialService {
   private static isConnectedState = false;
   private static lastError: string | null = null;
   private static lastAction: string = 'idle';
+  /** Called when a write/read proves the cable is gone (clears motor heartbeat). */
+  static onConnectionLost: (() => void) | null = null;
 
   static getStatus(): UsbSerialStatus {
     return {
@@ -128,6 +130,7 @@ export class UsbSerialService {
       this.lastAction = `write: ERROR — ${e.message || e}`;
       this.isConnectedState = false;
       useRobotStore.getState().setConnected(false);
+      this.onConnectionLost?.();
       return false;
     }
   }
@@ -153,6 +156,7 @@ export class UsbSerialService {
       this.lastAction = `writeBytes: ERROR — ${e.message || e}`;
       this.isConnectedState = false;
       useRobotStore.getState().setConnected(false);
+      this.onConnectionLost?.();
       return false;
     }
   }

@@ -1,14 +1,14 @@
-# Release builds (MVP 2.0.0)
+# Release builds (MVP 2.2.0)
 
-Production-style Android APKs for ABIOGENESIS companion. Debug installs (`npm run android`) are unchanged.
+Production-style Android APKs for ABIOGENESIS companion. Debug installs (`npm run android`) are unchanged. Field notes: [`docs/FIELD.md`](./FIELD.md).
 
 ## Version
 
 | Field | Value |
 |-------|-------|
-| `package.json` version | `2.0.0` |
-| `versionName` | `2.0.0` |
-| `versionCode` | `20` |
+| `package.json` version | `2.2.0` |
+| `versionName` | `2.2.0` |
+| `versionCode` | `22` |
 
 ## Create a release keystore (once)
 

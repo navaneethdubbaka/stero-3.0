@@ -12,7 +12,8 @@ class CompanionPackage : ReactPackage {
             UsbSerialModule(reactContext),
             WebControllerModule(reactContext),
             VoiceModule(reactContext),
-            NotificationModule(reactContext)
+            NotificationModule(reactContext),
+            DeviceHealthModule(reactContext)
         )
     }
 

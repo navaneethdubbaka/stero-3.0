@@ -17,6 +17,9 @@ import VoiceService from '../voice/VoiceService';
 import SleepSystem from '../services/SleepSystem';
 import IdleBehaviorEngine from '../services/IdleBehaviorEngine';
 import { NotificationOverlay } from '../components/NotificationOverlay';
+import { useDeviceHealthStore } from '../utils/deviceHealth';
+import { setFaceBrightness, restoreFaceBrightness } from '../utils/deviceHealth';
+import { useSettingsStore } from '../store/useSettingsStore';
 
 const { NotificationModule } = NativeModules;
 const notificationEmitter = new NativeEventEmitter(NotificationModule);
@@ -63,6 +66,9 @@ export const FaceScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const danceEnabled = useDanceStore((state) => state.enabled);
   const danceStatus = useDanceStore((state) => state.status);
   const danceRoutine = useDanceStore((state) => state.routineId);
+  const thermalSevere = useDeviceHealthStore((s) => s.thermalSevere);
+  const lowBattery = useDeviceHealthStore((s) => s.lowBattery);
+  const brightness = useSettingsStore((s) => s.display.brightness);
 
   const [showTray, setShowTray] = useState(false);
   const [menuVisible, setMenuVisible] = useState(false);
@@ -136,6 +142,13 @@ export const FaceScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
     };
   }, []);
 
+  useEffect(() => {
+    setFaceBrightness(brightness);
+    return () => {
+      restoreFaceBrightness();
+    };
+  }, [brightness]);
+
   // Pause blink loop while asleep (videos pause in FaceEngine)
   useEffect(() => {
     if (isAsleep) {
@@ -189,14 +202,13 @@ export const FaceScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   return (
     <TouchableWithoutFeedback onPressIn={handlePressIn} onPressOut={handlePressOut}>
       <View style={styles.container}>
-        <FaceEngine />
+        <FaceEngine thermalSevere={thermalSevere} />
 
         {/*
           Hidden pose host for gaze + Follow while Face is foreground.
-          Power cost: CameraX + MediaPipe while awake. Unmounted in sleep.
-          Stack unmounts Face when Vision opens → one camera at a time.
+          Unmounted in sleep, or when thermal is severe and Follow is off.
         */}
-        {!isAsleep && (
+        {!isAsleep && !(thermalSevere && !followEnabled) && (
           <VisionCameraView
             style={styles.hiddenCamera}
             onPoseDetected={handlePoseDetected}
@@ -212,6 +224,12 @@ export const FaceScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
         {emergencyActive && (
           <View style={styles.estopBanner} pointerEvents="none">
             <Text style={styles.estopBannerText}>E-STOP ACTIVE — clear from menu</Text>
+          </View>
+        )}
+
+        {lowBattery && !emergencyActive && (
+          <View style={styles.estopBanner} pointerEvents="none">
+            <Text style={styles.estopBannerText}>LOW BATTERY — I need to charge</Text>
           </View>
         )}
 
@@ -269,7 +287,13 @@ export const FaceScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
               activeOpacity={0.8}
             >
               <Text style={styles.floatingEstopText}>
-                {followEnabled ? `FOLLOW ${followStatus}` : isConnected ? 'FOLLOW' : 'NO USB'}
+                {followEnabled
+                  ? `FOLLOW ${followStatus}`
+                  : lowBattery
+                    ? 'CHARGE'
+                    : isConnected
+                      ? 'FOLLOW'
+                      : 'NO USB'}
               </Text>
             </TouchableOpacity>
             <TouchableOpacity

@@ -30,7 +30,9 @@ const emotionVideos: Record<EmotionType, any> = {
   DEAD: require('../assets/faces/out_of_service.mp4'),
 };
 
-export const FaceEngine: React.FC = () => {
+export const FaceEngine: React.FC<{ thermalSevere?: boolean }> = ({
+  thermalSevere = false,
+}) => {
   const currentEmotion = useEmotionStore((state) => state.currentEmotion);
   const isBlinking = useEmotionStore((state) => state.isBlinking);
   const isAsleep = useSleepStore((state) => state.isAsleep);
@@ -105,22 +107,26 @@ export const FaceEngine: React.FC = () => {
 
   const pauseIdle = (!isIdle && activeReady) || isAsleep;
   const pauseEmotion = isAsleep;
+  const skipDualPlayer = thermalSevere && !isIdle;
 
   return (
     <View style={styles.container} pointerEvents="none">
-      {/* 1. Permanent Idle Player */}
-      <Animated.View style={[styles.videoWrap, { opacity: idleOpacity }]}>
-        <Video
-          source={emotionVideos.IDLE}
-          style={styles.video}
-          resizeMode="contain"
-          repeat={true}
-          muted={true}
-          playInBackground={false}
-          disableFocus={true}
-          paused={pauseIdle}
-        />
-      </Animated.View>
+      {/* 1. Permanent Idle Player — skipped under thermal severe + emotion to save heat */}
+      {!skipDualPlayer && (
+        <Animated.View style={[styles.videoWrap, { opacity: idleOpacity }]}>
+          <Video
+            source={emotionVideos.IDLE}
+            style={styles.video}
+            resizeMode="contain"
+            repeat={true}
+            muted={true}
+            playInBackground={false}
+            disableFocus={true}
+            paused={pauseIdle}
+            maxBitRate={thermalSevere ? 400000 : undefined}
+          />
+        </Animated.View>
+      )}
 
       {/* 2. Dynamic Emotion Player */}
       {!isIdle && (
@@ -136,6 +142,7 @@ export const FaceEngine: React.FC = () => {
             playInBackground={false}
             disableFocus={true}
             paused={pauseEmotion}
+            maxBitRate={thermalSevere ? 400000 : undefined}
             onReadyForDisplay={() => setActiveReady(true)}
           />
         </Animated.View>
@@ -181,7 +188,11 @@ const styles = StyleSheet.create({
     bottom: 0,
   },
   lidLayer: {
-    ...StyleSheet.absoluteFillObject,
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     zIndex: 20,
   },
   lidTop: {

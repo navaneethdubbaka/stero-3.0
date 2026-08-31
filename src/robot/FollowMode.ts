@@ -22,6 +22,8 @@ const TICK_HZ = 18;
 /** Max absolute PWM change per wheel per tick. */
 const SLEW_STEP = 32;
 
+export type FollowStartBlock = 'battery' | 'companion' | 'dispatch' | null;
+
 /**
  * Closed-loop human following: tracking snapshot → FOLLOW claimant.
  * Yields to MANUAL / WEB / EMERGENCY via MotorArbiter priority.
@@ -37,32 +39,55 @@ class FollowModeImpl {
   private lastCommand: MovementDirection = 'S';
   private slewedLeft = 0;
   private slewedRight = 0;
+  private lastStartBlock: FollowStartBlock = null;
 
   isEnabled(): boolean {
     return this.enabled;
   }
 
-  start(): void {
+  getLastStartBlock(): FollowStartBlock {
+    return this.lastStartBlock;
+  }
+
+  start(): boolean {
     if (this.enabled) {
       this.tick();
-      return;
+      this.lastStartBlock = null;
+      return true;
+    }
+
+    const { getDeviceHealth } = require('../utils/deviceHealth');
+    const health = getDeviceHealth();
+    if (health.lowBattery) {
+      this.lastStartBlock = 'battery';
+      console.log('[FollowMode] start blocked — low battery');
+      try {
+        const { useEmotionStore } = require('../store/useEmotionStore');
+        useEmotionStore.getState().setEmotion('LOW_BATTERY');
+      } catch {
+        // ignore
+      }
+      return false;
     }
 
     // Companion arbitration: reject FOLLOW while SLEEP / MANUAL / DANCING
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { CompanionStateMachine } = require('./CompanionStateMachine');
     if (!CompanionStateMachine.canFollow()) {
+      this.lastStartBlock = 'companion';
       console.log(
         `[FollowMode] start blocked — companion=${CompanionStateMachine.getState()}`
       );
-      return;
+      return false;
     }
     const claim = CompanionStateMachine.dispatch('FOLLOW_START');
     if (!claim.ok) {
+      this.lastStartBlock = 'dispatch';
       console.log(`[FollowMode] FOLLOW_START rejected: ${claim.reason}`);
-      return;
+      return false;
     }
 
+    this.lastStartBlock = null;
     this.enabled = true;
     this.antiSpinLatched = false;
     this.rotateStartedAt = null;
@@ -93,6 +118,7 @@ class FollowModeImpl {
     this.mirrorStatus();
     this.tick();
     console.log('[FollowMode] started');
+    return true;
   }
 
   stop(): void {

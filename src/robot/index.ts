@@ -20,6 +20,7 @@ export type {
   FollowDiffMode,
 } from './NavigationEngine';
 export { FollowMode, ANTI_SPIN_MS } from './FollowMode';
+export type { FollowStartBlock } from './FollowMode';
 export { getRobotWarnings, pushRobotWarning, clearRobotWarnings } from './RobotLog';
 export type { RobotLogEntry } from './RobotLog';
 export { DanceMode, DANCE_ROUTINES } from './DanceMode';

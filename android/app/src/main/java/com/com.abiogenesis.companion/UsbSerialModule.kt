@@ -20,10 +20,11 @@ import com.hoho.android.usbserial.driver.UsbSerialDriver
 import com.hoho.android.usbserial.driver.UsbSerialPort
 import com.hoho.android.usbserial.driver.UsbSerialProber
 
-class UsbSerialModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaModule(reactContext) {
+class UsbSerialModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaModule(reactContext), LifecycleEventListener {
     private val usbManager = reactContext.getSystemService(Context.USB_SERVICE) as UsbManager
     private var serialPort: UsbSerialPort? = null
     private val ACTION_USB_PERMISSION = "com.abiogenesis.companion.USB_PERMISSION"
+    private var usbAttachReceiver: BroadcastReceiver? = null
 
     companion object {
         private const val TAG = "UsbSerial"
@@ -31,6 +32,69 @@ class UsbSerialModule(reactContext: ReactApplicationContext) : ReactContextBaseJ
 
     override fun getName(): String {
         return "UsbSerial"
+    }
+
+    override fun initialize() {
+        super.initialize()
+        reactApplicationContext.addLifecycleEventListener(this)
+        registerUsbAttachReceiver()
+    }
+
+    override fun invalidate() {
+        unregisterUsbAttachReceiver()
+        reactApplicationContext.removeLifecycleEventListener(this)
+        super.invalidate()
+    }
+
+    override fun onHostResume() {}
+    override fun onHostPause() {}
+    override fun onHostDestroy() {
+        unregisterUsbAttachReceiver()
+    }
+
+    @ReactMethod
+    fun addListener(eventName: String) {}
+
+    @ReactMethod
+    fun removeListeners(count: Int) {}
+
+    private fun sendEvent(eventName: String, params: WritableMap?) {
+        if (reactApplicationContext.hasActiveReactInstance()) {
+            reactApplicationContext
+                .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+                .emit(eventName, params)
+        }
+    }
+
+    private fun registerUsbAttachReceiver() {
+        if (usbAttachReceiver != null) return
+        usbAttachReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                val attached = intent?.action == UsbManager.ACTION_USB_DEVICE_ATTACHED
+                val map = Arguments.createMap()
+                map.putBoolean("attached", attached)
+                sendEvent("onUsbDeviceChanged", map)
+            }
+        }
+        val filter = IntentFilter().apply {
+            addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED)
+            addAction(UsbManager.ACTION_USB_DEVICE_DETACHED)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            reactApplicationContext.registerReceiver(usbAttachReceiver, filter, Context.RECEIVER_EXPORTED)
+        } else {
+            reactApplicationContext.registerReceiver(usbAttachReceiver, filter)
+        }
+    }
+
+    private fun unregisterUsbAttachReceiver() {
+        usbAttachReceiver?.let {
+            try {
+                reactApplicationContext.unregisterReceiver(it)
+            } catch (_: Exception) {
+            }
+        }
+        usbAttachReceiver = null
     }
 
     /**

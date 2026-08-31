@@ -7,6 +7,7 @@ class SleepSystem {
   private static instance: SleepSystem;
   private timerId: ReturnType<typeof setTimeout> | null = null;
   private isRunning: boolean = false;
+  private unsubSettings: (() => void) | null = null;
 
   private constructor() {}
 
@@ -24,6 +25,11 @@ class SleepSystem {
     if (this.isRunning) return;
     this.isRunning = true;
     console.log('SleepSystem: Starting inactivity check.');
+    this.unsubSettings = useSettingsStore.subscribe((state, prev) => {
+      if (state.display.sleepTimeout !== prev.display.sleepTimeout) {
+        this.resetTimer();
+      }
+    });
     this.resetTimer();
   }
 
@@ -32,6 +38,8 @@ class SleepSystem {
    */
   public stop() {
     this.isRunning = false;
+    this.unsubSettings?.();
+    this.unsubSettings = null;
     if (this.timerId) {
       clearTimeout(this.timerId);
       this.timerId = null;

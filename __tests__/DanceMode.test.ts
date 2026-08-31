@@ -8,11 +8,13 @@ const mockRequestDanceStart = jest.fn(() => ({
   ok: true,
   from: 'IDLE',
   to: 'DANCING',
+  reason: undefined as string | undefined,
 }));
 const mockRequestDanceEnd = jest.fn(() => ({
   ok: true,
   from: 'DANCING',
   to: 'IDLE',
+  reason: undefined as string | undefined,
 }));
 const mockGetState = jest.fn(() => 'IDLE');
 const mockFollowStop = jest.fn();
@@ -69,7 +71,12 @@ describe('DanceMode', () => {
     mockFollowStop.mockClear();
     mockFollowEnabled.mockReturnValue(false);
     mockGetState.mockReturnValue('IDLE');
-    mockRequestDanceStart.mockReturnValue({ ok: true, from: 'IDLE', to: 'DANCING' });
+    mockRequestDanceStart.mockReturnValue({
+      ok: true,
+      from: 'IDLE',
+      to: 'DANCING',
+      reason: undefined,
+    });
     DanceMode.stop('reset');
     useDanceStore.getState().reset();
     useRobotStore.setState({

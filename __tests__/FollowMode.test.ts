@@ -38,6 +38,21 @@ jest.mock('../src/robot/CompanionStateMachine', () => ({
   },
 }));
 
+jest.mock('../src/utils/deviceHealth', () => ({
+  getDeviceHealth: jest.fn(() => ({
+    batteryPercent: 80,
+    thermalStatus: 0,
+    lowBattery: false,
+    thermalSevere: false,
+  })),
+}));
+
+jest.mock('../src/store/useEmotionStore', () => ({
+  useEmotionStore: {
+    getState: () => ({ setEmotion: jest.fn() }),
+  },
+}));
+
 const { RobotController } = require('../src/robot/RobotController');
 
 const applySnap = (overrides: Partial<TrackingSnapshot>) => {
@@ -67,6 +82,13 @@ describe('FollowMode', () => {
     useFollowStore.getState().reset();
     useTrackingStore.getState().reset();
     RobotController.getUseDifferentialDrive.mockReturnValue(false);
+    const { getDeviceHealth } = require('../src/utils/deviceHealth');
+    getDeviceHealth.mockReturnValue({
+      batteryPercent: 80,
+      thermalStatus: 0,
+      lowBattery: false,
+      thermalSevere: false,
+    });
     useSettingsStore.setState((s) => ({
       robot: {
         ...s.robot,
@@ -169,5 +191,24 @@ describe('FollowMode', () => {
     expect(left).toBe(right);
     expect(left).toBeGreaterThan(0);
     expect(left).toBeLessThanOrEqual(32);
+  });
+
+  it('refuses start when battery is low', () => {
+    const { getDeviceHealth } = require('../src/utils/deviceHealth');
+    getDeviceHealth.mockReturnValue({
+      batteryPercent: 10,
+      thermalStatus: 0,
+      lowBattery: true,
+      thermalSevere: false,
+    });
+    applySnap({
+      steerZone: 'CENTER',
+      distanceIntent: 'APPROACH',
+      distanceZone: 'FAR',
+    });
+    const ok = FollowMode.start();
+    expect(ok).toBe(false);
+    expect(FollowMode.getLastStartBlock()).toBe('battery');
+    expect(RobotController.requestFollowDrive).not.toHaveBeenCalled();
   });
 });

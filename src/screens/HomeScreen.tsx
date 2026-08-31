@@ -5,9 +5,10 @@ import { useEmotionStore } from '../store/useEmotionStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useCompanionStore } from '../store/useCompanionStore';
 import { useDanceStore } from '../store/useDanceStore';
-import { UsbSerialService } from '../services/UsbSerialService';
 import { RobotController } from '../robot/RobotController';
 import { DanceMode } from '../robot/DanceMode';
+import { UsbReconnect } from '../services/UsbReconnect';
+import { startDeviceHealth, useDeviceHealthStore } from '../utils/deviceHealth';
 interface HomeScreenProps {
   navigation: any;
 }
@@ -25,6 +26,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   const danceStatus = useDanceStore((state) => state.status);
   const ai = useSettingsStore((state) => state.ai);
   const robot = useSettingsStore((state) => state.robot);
+  const lowBattery = useDeviceHealthStore((s) => s.lowBattery);
+  const batteryPercent = useDeviceHealthStore((s) => s.batteryPercent);
 
   useEffect(() => {
     (async () => {
@@ -33,13 +36,14 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
       const settings = useSettingsStore.getState().robot;
       RobotController.setSpeed(settings.motorSpeed);
       RobotController.setUseDifferentialDrive(!!settings.useDifferentialDrive);
-      await UsbSerialService.autoConnect();
+      startDeviceHealth();
+      UsbReconnect.start();
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleRetryUsb = async () => {
-    await UsbSerialService.autoConnect();
+  const handleRetryUsb = () => {
+    UsbReconnect.kick();
   };
 
   return (
@@ -67,7 +71,13 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
               activeOpacity={0.8}
             >
               <View style={[styles.statusDot, isConnected ? styles.connectedDot : styles.disconnectedDot]} />
-              <Text style={styles.statusText}>{isConnected ? 'USB Connected' : 'USB Offline'}</Text>
+              <Text style={styles.statusText}>
+                {isConnected
+                  ? 'USB Connected'
+                  : companionState === 'ERROR'
+                    ? 'USB Error'
+                    : 'USB Offline'}
+              </Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -79,6 +89,9 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
             {' · '}Speed {motorSpeed}
             {robot.useDifferentialDrive ? ' · Diff ON' : ''}
             {' · '}Companion: {companionState}
+            {lowBattery
+              ? ` · Low battery${batteryPercent >= 0 ? ` ${batteryPercent}%` : ''} — Follow blocked`
+              : ''}
           </Text>
         </View>
 

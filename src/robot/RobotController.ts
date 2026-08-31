@@ -73,6 +73,17 @@ class RobotControllerImpl {
     this.store?.setConnected(false);
   }
 
+  /**
+   * USB dropped mid-drive: stop heartbeat so reconnect cannot duplicate intervals.
+   * Does not open/close the port (already gone).
+   */
+  handleUsbLost(): void {
+    this.start();
+    this.clearHeartbeat();
+    this.currentDirection = 'S';
+    this.mirrorUi();
+  }
+
   setUseDifferentialDrive(enabled: boolean): void {
     this.useDifferentialDrive = enabled;
     if (enabled) {

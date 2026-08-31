@@ -8,6 +8,10 @@ import { useMemoryStore } from '../store/useMemoryStore';
 import MemoryService from '../memory/MemoryService';
 import { Storage } from '../memory/Storage';
 import ModelDiscovery from '../llm/ModelDiscovery';
+import { getLogRing } from '../utils/logger';
+import { getDeviceHealth, shareDiagnosticsZip } from '../utils/deviceHealth';
+import { UsbSerialService } from '../services/UsbSerialService';
+import { CompanionStateMachine } from '../robot/CompanionStateMachine';
 
 const { VoiceModule, NotificationModule } = NativeModules;
 
@@ -662,6 +666,32 @@ export const SettingsScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
     await Storage.clearAllCompanionData();
   };
 
+  const handleShareDiagnostics = async () => {
+    const health = getDeviceHealth();
+    const usb = UsbSerialService.getStatus();
+    const payload = {
+      app: 'ABIOGENESIS',
+      version: '2.2.0',
+      at: new Date().toISOString(),
+      usb: {
+        isConnected: usb.isConnected,
+        lastAction: usb.lastAction,
+        lastError: usb.lastError,
+        nativeModuleAvailable: usb.nativeModuleAvailable,
+      },
+      health,
+      companion: CompanionStateMachine.getHistory().slice(-20).map((r) => ({
+        event: r.event,
+        from: r.from,
+        to: r.to,
+        at: r.at,
+      })),
+      robotWarnings: getRobotWarnings(),
+      logs: getLogRing(),
+    };
+    await shareDiagnosticsZip(JSON.stringify(payload, null, 2));
+  };
+
   const renderLogsTab = () => (
     <View style={styles.tabContent}>
       {/* Memory snapshot */}
@@ -693,6 +723,17 @@ export const SettingsScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
       <Text style={[styles.hintText, { marginTop: 8 }]}>
         Full wipe (including settings): Android Settings → Apps → ABIOGENESIS →
         Storage → Clear data.
+      </Text>
+
+      <View style={[styles.sectionHeaderRow, { marginTop: 24 }]}>
+        <Text style={styles.sectionTitle}>Diagnostics</Text>
+        <TouchableOpacity style={styles.clearBtn} onPress={() => { void handleShareDiagnostics(); }}>
+          <Text style={styles.clearBtnText}>Share diagnostics</Text>
+        </TouchableOpacity>
+      </View>
+      <Text style={styles.hintText}>
+        Zip of USB status, companion transitions, robot warnings, and the app log ring.
+        No chat transcripts or API keys.
       </Text>
 
       {/* 0b. Robot / differential warnings */}

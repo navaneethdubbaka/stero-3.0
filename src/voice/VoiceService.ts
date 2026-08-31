@@ -283,7 +283,13 @@ class VoiceService {
         await this.speak('I need USB connected to follow.');
         return;
       }
-      FollowMode.start();
+      const started = FollowMode.start();
+      if (!started && FollowMode.getLastStartBlock() === 'battery') {
+        conversationStore.addMessage('user', text);
+        conversationStore.addMessage('assistant', 'I need to charge.');
+        await this.speak('I need to charge.');
+        return;
+      }
       conversationStore.addMessage('user', text);
       conversationStore.addMessage('assistant', 'Okay, I will follow you. Open Vision if the camera is off.');
       MemoryService.noteSuccessfulDialogue();
