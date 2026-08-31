@@ -1,5 +1,6 @@
 import { UsbSerialService } from '../services/UsbSerialService';
 import { motorArbiter } from './MotorArbiter';
+import { pushRobotWarning } from './RobotLog';
 import {
   DriveCommand,
   MotorClaimant,
@@ -18,6 +19,10 @@ type StoreMirror = {
   }) => void;
 };
 
+function clampSignedPwm(value: number): number {
+  return Math.max(-255, Math.min(255, Math.round(value)));
+}
+
 /**
  * Sole production writer of motor serial commands.
  * Subscribes to MotorArbiter and applies the winning DriveCommand.
@@ -27,10 +32,14 @@ class RobotControllerImpl {
   private motorSpeed = 150;
   private currentDirection: MovementDirection = 'S';
   private lastWrite: string | null = null;
-  private useDifferentialDrive = false;
+  private useDifferentialDrive = true;
   private started = false;
   private unsubscribe: (() => void) | null = null;
   private store: StoreMirror | null = null;
+  /** After NAK / missing ACK, stay on v1 for this process. */
+  private differentialFallbackLatched = false;
+  private differentialProbePending = false;
+  private differentialFallbackWarned = false;
 
   /** Wire Zustand mirror once (avoids circular import issues at call time). */
   attachStore(store: StoreMirror): void {
@@ -66,10 +75,19 @@ class RobotControllerImpl {
 
   setUseDifferentialDrive(enabled: boolean): void {
     this.useDifferentialDrive = enabled;
+    if (enabled) {
+      // Allow retry after user re-enables in Settings
+      this.differentialFallbackLatched = false;
+      this.differentialFallbackWarned = false;
+    }
   }
 
   getUseDifferentialDrive(): boolean {
-    return this.useDifferentialDrive;
+    return this.useDifferentialDrive && !this.differentialFallbackLatched;
+  }
+
+  isDifferentialFallbackActive(): boolean {
+    return this.differentialFallbackLatched;
   }
 
   setSpeed(speed: number): void {
@@ -110,7 +128,7 @@ class RobotControllerImpl {
     motorArbiter.claim('WEB', { kind: 'discrete', direction });
   }
 
-  /** Claim or release FOLLOW based on direction (Page 3 FollowMode). */
+  /** Claim or release FOLLOW based on direction (Protocol v1). */
   requestFollowDrive(direction: MovementDirection): void {
     this.start();
     if (direction === 'S') {
@@ -119,6 +137,27 @@ class RobotControllerImpl {
       return;
     }
     motorArbiter.claim('FOLLOW', { kind: 'discrete', direction });
+  }
+
+  /**
+   * Claim FOLLOW with Protocol v2.1 signed PWM.
+   * Zero/zero releases the claim (same as discrete S).
+   */
+  requestFollowDiff(left: number, right: number): void {
+    this.start();
+    const l = clampSignedPwm(left);
+    const r = clampSignedPwm(right);
+    if (l === 0 && r === 0) {
+      motorArbiter.release('FOLLOW');
+      this.applyWinningCommand();
+      return;
+    }
+    if (!this.getUseDifferentialDrive()) {
+      // Flag off / fallback — map coarse intent to discrete
+      this.requestFollowDrive(this.diffToDiscrete(l, r));
+      return;
+    }
+    motorArbiter.claim('FOLLOW', { kind: 'diff', left: l, right: r });
   }
 
   /** Generic claim for FOLLOW / DANCE modules. */
@@ -165,8 +204,16 @@ class RobotControllerImpl {
       activeClaimant: motorArbiter.getActiveClaimant(),
       emergencyActive: motorArbiter.isEmergencyActive(),
       lastWrite: this.lastWrite,
-      useDifferentialDrive: this.useDifferentialDrive,
+      useDifferentialDrive: this.getUseDifferentialDrive(),
     };
+  }
+
+  private diffToDiscrete(left: number, right: number): MovementDirection {
+    if (left === 0 && right === 0) return 'S';
+    if (left < 0 && right > 0) return 'L';
+    if (left > 0 && right < 0) return 'R';
+    if (left > 0 || right > 0) return 'F';
+    return 'B';
   }
 
   private applyWinningCommand(): void {
@@ -179,14 +226,13 @@ class RobotControllerImpl {
     }
 
     // Diff drive
-    if (!this.useDifferentialDrive) {
-      // Flag off — do not emit M:; hold stop unless discrete somehow wins
-      this.applyDiscrete('S');
+    if (!this.getUseDifferentialDrive()) {
+      this.applyDiscrete(this.diffToDiscrete(command.left, command.right));
       return;
     }
 
-    const left = Math.max(0, Math.min(255, Math.round(command.left)));
-    const right = Math.max(0, Math.min(255, Math.round(command.right)));
+    const left = clampSignedPwm(command.left);
+    const right = clampSignedPwm(command.right);
     const payload = `M:${left},${right}\n`;
 
     if (left === 0 && right === 0) {
@@ -197,10 +243,51 @@ class RobotControllerImpl {
       return;
     }
 
-    void this.writeRaw(payload);
-    this.currentDirection = 'F'; // approximate for UI
+    void this.writeDiffAndMaybeProbe(payload, left, right);
+    this.currentDirection = this.diffToDiscrete(left, right);
     this.startHeartbeat(payload);
     this.mirrorUi();
+  }
+
+  private async writeDiffAndMaybeProbe(
+    payload: string,
+    left: number,
+    right: number
+  ): Promise<void> {
+    const ok = await this.writeRaw(payload);
+    if (!ok) {
+      return;
+    }
+    if (this.differentialProbePending || this.differentialFallbackLatched) {
+      return;
+    }
+    this.differentialProbePending = true;
+    try {
+      await new Promise<void>((r) => setTimeout(r, 180));
+      const response = await UsbSerialService.read();
+      const text = (response || '').trim();
+      if (text.includes('NAK:M') || !text.includes('ACK:M')) {
+        this.latchDifferentialFallback(
+          text.includes('NAK:M')
+            ? 'Firmware NAK:M — differential disabled; Follow using F/L/R/S'
+            : 'No ACK:M for M: command — differential disabled; Follow using F/L/R/S (flash companion_control.ino v2.1)'
+        );
+        // Re-apply as discrete so motors keep moving
+        this.applyDiscrete(this.diffToDiscrete(left, right));
+      }
+    } catch (e) {
+      console.warn('[RobotController] differential probe failed', e);
+    } finally {
+      this.differentialProbePending = false;
+    }
+  }
+
+  private latchDifferentialFallback(message: string): void {
+    this.differentialFallbackLatched = true;
+    if (!this.differentialFallbackWarned) {
+      this.differentialFallbackWarned = true;
+      pushRobotWarning(message);
+    }
   }
 
   private applyDiscrete(direction: MovementDirection): void {

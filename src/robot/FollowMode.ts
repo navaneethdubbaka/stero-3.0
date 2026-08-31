@@ -2,20 +2,30 @@ import { TrackingEngine } from '../vision/TrackingEngine';
 import { useTrackingStore } from '../store/useTrackingStore';
 import { useRobotStore } from '../store/useRobotStore';
 import { useFollowStore, FollowStatus } from '../store/useFollowStore';
+import { useSettingsStore } from '../store/useSettingsStore';
 import { RobotController } from './RobotController';
-import { computeFollowCommand } from './NavigationEngine';
+import {
+  computeFollowCommand,
+  computeFollowDiff,
+  slewPwm,
+  type FollowDiffCommand,
+} from './NavigationEngine';
 import type { MovementDirection } from './types';
 import type { TrackingSnapshot } from '../vision/types';
 
-/** Max continuous L/R before forced stop until CENTER or lock lost. */
+/** Default max continuous spin before forced stop (overridable via settings). */
 export const ANTI_SPIN_MS = 2500;
 
-/** Fallback tick rate when pose events are sparse. */
-const TICK_HZ = 12;
+/** Follow tick rate (pose-event + interval). */
+const TICK_HZ = 18;
+
+/** Max absolute PWM change per wheel per tick. */
+const SLEW_STEP = 32;
 
 /**
  * Closed-loop human following: tracking snapshot → FOLLOW claimant.
  * Yields to MANUAL / WEB / EMERGENCY via MotorArbiter priority.
+ * Protocol v2.1 differential when useDifferentialDrive is on.
  */
 class FollowModeImpl {
   private enabled = false;
@@ -25,6 +35,8 @@ class FollowModeImpl {
   private rotateStartedAt: number | null = null;
   private antiSpinLatched = false;
   private lastCommand: MovementDirection = 'S';
+  private slewedLeft = 0;
+  private slewedRight = 0;
 
   isEnabled(): boolean {
     return this.enabled;
@@ -55,6 +67,8 @@ class FollowModeImpl {
     this.antiSpinLatched = false;
     this.rotateStartedAt = null;
     this.lastCommand = 'S';
+    this.slewedLeft = 0;
+    this.slewedRight = 0;
 
     // Lazy require avoids cycle with SleepSystem (which may stop Follow)
     // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -92,6 +106,8 @@ class FollowModeImpl {
     this.antiSpinLatched = false;
     this.rotateStartedAt = null;
     this.lastCommand = 'S';
+    this.slewedLeft = 0;
+    this.slewedRight = 0;
     RobotController.requestFollowDrive('S');
     useFollowStore.getState().reset();
 
@@ -127,18 +143,69 @@ class FollowModeImpl {
     }
 
     const snapshot = this.readSnapshot();
+    const useDiff = RobotController.getUseDifferentialDrive();
+
+    if (useDiff) {
+      this.tickDifferential(snapshot);
+    } else {
+      this.tickDiscrete(snapshot);
+    }
+  }
+
+  private tickDiscrete(snapshot: TrackingSnapshot): void {
     let command = computeFollowCommand(snapshot);
-    command = this.applyAntiSpin(snapshot, command);
+    command = this.applyAntiSpinDiscrete(snapshot, command);
 
     this.lastCommand = command;
+    this.slewedLeft = 0;
+    this.slewedRight = 0;
 
-    if (command === 'S') {
-      RobotController.requestFollowDrive('S');
+    RobotController.requestFollowDrive(command);
+    this.mirrorStatus(snapshot, command);
+  }
+
+  private tickDifferential(snapshot: TrackingSnapshot): void {
+    const robot = useSettingsStore.getState().robot;
+    const maxBurst = robot.maxRotateBurstMs ?? ANTI_SPIN_MS;
+    const motorCap = Math.min(robot.motorSpeed, robot.followMaxPwm ?? 180);
+
+    let target: FollowDiffCommand = computeFollowDiff(snapshot, {
+      followMinPwm: robot.followMinPwm ?? 80,
+      followMaxPwm: motorCap,
+      curveGain: robot.curveGain ?? 1.0,
+    });
+
+    target = this.applyAntiSpinDiff(snapshot, target, maxBurst);
+
+    // CLOSE / stop: jump to zero for shin safety; otherwise slew
+    if (target.mode === 'stop') {
+      this.slewedLeft = 0;
+      this.slewedRight = 0;
     } else {
-      RobotController.requestFollowDrive(command);
+      this.slewedLeft = slewPwm(this.slewedLeft, target.left, SLEW_STEP);
+      this.slewedRight = slewPwm(this.slewedRight, target.right, SLEW_STEP);
     }
 
-    this.mirrorStatus(snapshot, command);
+    this.lastCommand = this.diffApproxDirection(
+      this.slewedLeft,
+      this.slewedRight,
+      target.mode
+    );
+
+    RobotController.requestFollowDiff(this.slewedLeft, this.slewedRight);
+    this.mirrorStatus(snapshot, this.lastCommand);
+  }
+
+  private diffApproxDirection(
+    left: number,
+    right: number,
+    mode: FollowDiffCommand['mode']
+  ): MovementDirection {
+    if (mode === 'stop' || (left === 0 && right === 0)) return 'S';
+    if (mode === 'spin') {
+      return left < 0 ? 'L' : 'R';
+    }
+    return 'F';
   }
 
   private readSnapshot(): TrackingSnapshot {
@@ -161,14 +228,15 @@ class FollowModeImpl {
     };
   }
 
-  private applyAntiSpin(
+  private applyAntiSpinDiscrete(
     snapshot: TrackingSnapshot,
     command: MovementDirection
   ): MovementDirection {
+    const maxBurst =
+      useSettingsStore.getState().robot.maxRotateBurstMs ?? ANTI_SPIN_MS;
     const now = Date.now();
     const isRotate = command === 'L' || command === 'R';
 
-    // Clear latch when centered or lock lost
     if (!snapshot.targetLocked || snapshot.steerZone === 'CENTER') {
       this.antiSpinLatched = false;
       this.rotateStartedAt = null;
@@ -182,7 +250,7 @@ class FollowModeImpl {
     if (isRotate) {
       if (this.rotateStartedAt === null) {
         this.rotateStartedAt = now;
-      } else if (now - this.rotateStartedAt >= ANTI_SPIN_MS) {
+      } else if (now - this.rotateStartedAt >= maxBurst) {
         this.antiSpinLatched = true;
         this.rotateStartedAt = null;
         return 'S';
@@ -192,6 +260,43 @@ class FollowModeImpl {
     }
 
     return command;
+  }
+
+  private applyAntiSpinDiff(
+    snapshot: TrackingSnapshot,
+    target: FollowDiffCommand,
+    maxBurstMs: number
+  ): FollowDiffCommand {
+    const now = Date.now();
+    const isSpin = target.mode === 'spin';
+
+    if (!snapshot.targetLocked || target.mode === 'curve' || target.mode === 'stop') {
+      if (target.mode !== 'spin') {
+        this.antiSpinLatched = false;
+        this.rotateStartedAt = null;
+      }
+      if (!isSpin) {
+        return target;
+      }
+    }
+
+    if (this.antiSpinLatched) {
+      return { left: 0, right: 0, mode: 'stop' };
+    }
+
+    if (isSpin) {
+      if (this.rotateStartedAt === null) {
+        this.rotateStartedAt = now;
+      } else if (now - this.rotateStartedAt >= maxBurstMs) {
+        this.antiSpinLatched = true;
+        this.rotateStartedAt = null;
+        return { left: 0, right: 0, mode: 'stop' };
+      }
+    } else {
+      this.rotateStartedAt = null;
+    }
+
+    return target;
   }
 
   private mirrorStatus(

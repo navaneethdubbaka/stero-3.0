@@ -3,6 +3,7 @@ import { StyleSheet, View, Text, TouchableOpacity, ScrollView, TextInput, SafeAr
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useConversationStore } from '../store/useConversationStore';
 import { useCompanionStore } from '../store/useCompanionStore';
+import { getRobotWarnings } from '../robot/RobotLog';
 import { useMemoryStore } from '../store/useMemoryStore';
 import MemoryService from '../memory/MemoryService';
 import { Storage } from '../memory/Storage';
@@ -440,7 +441,7 @@ export const SettingsScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
         Affects Vision deadband (CENTER zone) and Follow steer. Higher = tighter centering.
       </Text>
 
-      <Text style={styles.label}>Differential Drive (Protocol v2 M:)</Text>
+      <Text style={styles.label}>Differential Drive (Protocol v2.1 M:)</Text>
       <View style={styles.row}>
         <TouchableOpacity
           style={[styles.choiceBtn, !robot.useDifferentialDrive && styles.activeChoiceBtn]}
@@ -460,7 +461,122 @@ export const SettingsScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
         </TouchableOpacity>
       </View>
       <Text style={styles.helperText}>
-        Experimental. Requires firmware with M:left,right parser. Default stays discrete F/B/L/R/S.
+        Default ON. Follow uses signed M:left,right curves; falls back to F/L/R/S if firmware NAKs.
+        Flash companion_control.ino with Protocol v2.1.
+      </Text>
+
+      <Text style={styles.label}>Follow Max PWM ({robot.followMaxPwm})</Text>
+      <View style={styles.stepper}>
+        <TouchableOpacity
+          style={styles.stepButton}
+          onPress={() =>
+            updateRobotSettings({
+              followMaxPwm: Math.max(
+                robot.followMinPwm,
+                robot.followMaxPwm - 10
+              ),
+            })
+          }
+        >
+          <Text style={styles.stepText}>-</Text>
+        </TouchableOpacity>
+        <Text style={styles.valueDisplay}>{robot.followMaxPwm} / 255</Text>
+        <TouchableOpacity
+          style={styles.stepButton}
+          onPress={() =>
+            updateRobotSettings({
+              followMaxPwm: Math.min(255, robot.followMaxPwm + 10),
+            })
+          }
+        >
+          <Text style={styles.stepText}>+</Text>
+        </TouchableOpacity>
+      </View>
+      <Text style={styles.helperText}>
+        Cap for Follow curves (also clamped to Manual Default Speed at runtime).
+      </Text>
+
+      <Text style={styles.label}>Follow Min PWM ({robot.followMinPwm})</Text>
+      <View style={styles.stepper}>
+        <TouchableOpacity
+          style={styles.stepButton}
+          onPress={() =>
+            updateRobotSettings({
+              followMinPwm: Math.max(0, robot.followMinPwm - 10),
+            })
+          }
+        >
+          <Text style={styles.stepText}>-</Text>
+        </TouchableOpacity>
+        <Text style={styles.valueDisplay}>{robot.followMinPwm} / 255</Text>
+        <TouchableOpacity
+          style={styles.stepButton}
+          onPress={() =>
+            updateRobotSettings({
+              followMinPwm: Math.min(robot.followMaxPwm, robot.followMinPwm + 10),
+            })
+          }
+        >
+          <Text style={styles.stepText}>+</Text>
+        </TouchableOpacity>
+      </View>
+
+      <Text style={styles.label}>Curve Gain ({robot.curveGain.toFixed(1)})</Text>
+      <View style={styles.stepper}>
+        <TouchableOpacity
+          style={styles.stepButton}
+          onPress={() =>
+            updateRobotSettings({
+              curveGain: Math.max(0.2, parseFloat((robot.curveGain - 0.1).toFixed(1))),
+            })
+          }
+        >
+          <Text style={styles.stepText}>-</Text>
+        </TouchableOpacity>
+        <Text style={styles.valueDisplay}>{robot.curveGain.toFixed(1)}×</Text>
+        <TouchableOpacity
+          style={styles.stepButton}
+          onPress={() =>
+            updateRobotSettings({
+              curveGain: Math.min(3.0, parseFloat((robot.curveGain + 0.1).toFixed(1))),
+            })
+          }
+        >
+          <Text style={styles.stepText}>+</Text>
+        </TouchableOpacity>
+      </View>
+      <Text style={styles.helperText}>
+        Higher = sharper left/right speed split when the person is off-center.
+      </Text>
+
+      <Text style={styles.label}>
+        Max Rotate Burst ({Math.round(robot.maxRotateBurstMs / 100) / 10}s)
+      </Text>
+      <View style={styles.stepper}>
+        <TouchableOpacity
+          style={styles.stepButton}
+          onPress={() =>
+            updateRobotSettings({
+              maxRotateBurstMs: Math.max(500, robot.maxRotateBurstMs - 250),
+            })
+          }
+        >
+          <Text style={styles.stepText}>-</Text>
+        </TouchableOpacity>
+        <Text style={styles.valueDisplay}>{robot.maxRotateBurstMs} ms</Text>
+        <TouchableOpacity
+          style={styles.stepButton}
+          onPress={() =>
+            updateRobotSettings({
+              maxRotateBurstMs: Math.min(5000, robot.maxRotateBurstMs + 250),
+            })
+          }
+        >
+          <Text style={styles.stepText}>+</Text>
+        </TouchableOpacity>
+      </View>
+      <Text style={styles.helperText}>
+        Anti-spin: continuous in-place rotate stops after this duration until re-centered.
       </Text>
     </View>
   );
@@ -578,6 +694,33 @@ export const SettingsScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
         Full wipe (including settings): Android Settings → Apps → ABIOGENESIS →
         Storage → Clear data.
       </Text>
+
+      {/* 0b. Robot / differential warnings */}
+      <View style={[styles.sectionHeaderRow, { marginTop: 24 }]}>
+        <Text style={styles.sectionTitle}>Robot Warnings</Text>
+      </View>
+      {getRobotWarnings().length > 0 ? (
+        <ScrollView style={styles.logContainer} nestedScrollEnabled>
+          {[...getRobotWarnings()].reverse().map((rec, idx) => {
+            const time = new Date(rec.at).toLocaleTimeString([], {
+              hour: '2-digit',
+              minute: '2-digit',
+              second: '2-digit',
+            });
+            return (
+              <View key={`${rec.at}-${idx}`} style={[styles.msgItem, styles.systemMsgItem]}>
+                <View style={styles.msgHeader}>
+                  <Text style={[styles.msgRoleText, styles.systemRoleText]}>ROBOT</Text>
+                  <Text style={styles.msgTimeText}>{time}</Text>
+                </View>
+                <Text style={styles.msgContentText}>{rec.message}</Text>
+              </View>
+            );
+          })}
+        </ScrollView>
+      ) : (
+        <Text style={styles.noLogsText}>No robot warnings.</Text>
+      )}
 
       {/* 0. Companion state transitions */}
       <View style={[styles.sectionHeaderRow, { marginTop: 24 }]}>

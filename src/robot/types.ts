@@ -30,9 +30,9 @@ export type DiscreteDriveCommand = {
 
 export type DiffDriveCommand = {
   kind: 'diff';
-  /** Left motor PWM 0–255 */
+  /** Left motor signed PWM -255..255 (Protocol v2.1) */
   left: number;
-  /** Right motor PWM 0–255 */
+  /** Right motor signed PWM -255..255 (Protocol v2.1) */
   right: number;
 };
 

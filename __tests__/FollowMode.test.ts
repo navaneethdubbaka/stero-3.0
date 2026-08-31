@@ -1,11 +1,14 @@
 import { FollowMode, ANTI_SPIN_MS } from '../src/robot/FollowMode';
 import { useTrackingStore } from '../src/store/useTrackingStore';
 import { useFollowStore } from '../src/store/useFollowStore';
+import { useSettingsStore } from '../src/store/useSettingsStore';
 import type { TrackingSnapshot } from '../src/vision/types';
 
 jest.mock('../src/robot/RobotController', () => ({
   RobotController: {
     requestFollowDrive: jest.fn(),
+    requestFollowDiff: jest.fn(),
+    getUseDifferentialDrive: jest.fn(() => false),
     start: jest.fn(),
     attachStore: jest.fn(),
     requestManualDrive: jest.fn(),
@@ -63,6 +66,18 @@ describe('FollowMode', () => {
     FollowMode.stop();
     useFollowStore.getState().reset();
     useTrackingStore.getState().reset();
+    RobotController.getUseDifferentialDrive.mockReturnValue(false);
+    useSettingsStore.setState((s) => ({
+      robot: {
+        ...s.robot,
+        useDifferentialDrive: false,
+        followMaxPwm: 180,
+        followMinPwm: 80,
+        curveGain: 1.0,
+        maxRotateBurstMs: ANTI_SPIN_MS,
+        motorSpeed: 150,
+      },
+    }));
     jest.clearAllMocks();
   });
 
@@ -117,5 +132,42 @@ describe('FollowMode', () => {
     FollowMode.start();
     expect(useFollowStore.getState().status).toBe('SEARCHING');
     expect(RobotController.requestFollowDrive).toHaveBeenCalledWith('S');
+  });
+
+  it('diff mode: CLOSE sends zeros via requestFollowDiff', () => {
+    RobotController.getUseDifferentialDrive.mockReturnValue(true);
+    useSettingsStore.setState((s) => ({
+      robot: { ...s.robot, useDifferentialDrive: true },
+    }));
+
+    applySnap({
+      steerZone: 'CENTER',
+      distanceIntent: 'APPROACH',
+      distanceZone: 'CLOSE',
+    });
+    FollowMode.start();
+    expect(RobotController.requestFollowDiff).toHaveBeenCalledWith(0, 0);
+  });
+
+  it('diff mode: FAR center slews toward equal PWM', () => {
+    RobotController.getUseDifferentialDrive.mockReturnValue(true);
+    useSettingsStore.setState((s) => ({
+      robot: { ...s.robot, useDifferentialDrive: true },
+    }));
+
+    applySnap({
+      steerZone: 'CENTER',
+      offset: 0,
+      distanceIntent: 'APPROACH',
+      distanceZone: 'FAR',
+      estimatedDistanceM: 2.5,
+    });
+    FollowMode.start();
+    // First tick slews ±32 toward ~150 (min motorSpeed, maxPwm)
+    expect(RobotController.requestFollowDiff).toHaveBeenCalled();
+    const [left, right] = RobotController.requestFollowDiff.mock.calls[0];
+    expect(left).toBe(right);
+    expect(left).toBeGreaterThan(0);
+    expect(left).toBeLessThanOrEqual(32);
   });
 });

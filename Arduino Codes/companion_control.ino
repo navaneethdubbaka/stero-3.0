@@ -48,10 +48,79 @@ void loop() {
   }
 }
 
+/** Clamp absolute PWM to 0–255; preserve sign for direction. */
+int clampSignedPwm(int value) {
+  if (value > 255) return 255;
+  if (value < -255) return -255;
+  return value;
+}
+
+/**
+ * Protocol v2.1: signed PWM per side.
+ * Positive = same run direction as F (BACKWARD on this shield).
+ * Negative = reverse that side (FORWARD).
+ * Zero = RELEASE that side (both zero → full stop).
+ */
+void applyMotorSigned(AF_DCMotor &motor, int signedSpeed) {
+  int clamped = clampSignedPwm(signedSpeed);
+  int spd = abs(clamped);
+  if (clamped == 0) {
+    motor.run(RELEASE);
+    return;
+  }
+  motor.setSpeed(spd);
+  if (clamped > 0) {
+    motor.run(BACKWARD);
+  } else {
+    motor.run(FORWARD);
+  }
+}
+
+void applyDifferentialSigned(int leftSpeed, int rightSpeed) {
+  if (leftSpeed == 0 && rightSpeed == 0) {
+    stopMotors();
+    return;
+  }
+  motorsStopped = false;
+  applyMotorSigned(motorLeft, leftSpeed);
+  applyMotorSigned(motorRight, rightSpeed);
+}
+
+/** Parse "M:l,r" with optional signs. Returns false on malformed input. */
+bool parseDifferential(String command, int &leftOut, int &rightOut) {
+  int commaIndex = command.indexOf(',');
+  if (commaIndex <= 2) {
+    return false;
+  }
+  String leftStr = command.substring(2, commaIndex);
+  String rightStr = command.substring(commaIndex + 1);
+  leftStr.trim();
+  rightStr.trim();
+  if (leftStr.length() == 0 || rightStr.length() == 0) {
+    return false;
+  }
+  leftOut = clampSignedPwm(leftStr.toInt());
+  rightOut = clampSignedPwm(rightStr.toInt());
+  return true;
+}
+
 void processCommand(String command) {
   command.trim(); // Clean whitespace
 
   if (command.length() == 0) return;
+
+  // Protocol v2.1 differential — ACK:M / NAK:M (stable, not full payload)
+  if (command.startsWith("M:")) {
+    int leftSpeed = 0;
+    int rightSpeed = 0;
+    if (parseDifferential(command, leftSpeed, rightSpeed)) {
+      applyDifferentialSigned(leftSpeed, rightSpeed);
+      Serial.println("ACK:M");
+    } else {
+      Serial.println("NAK:M");
+    }
+    return;
+  }
 
   // Echo acknowledgment back (safe: one response per command, won't flood TX buffer)
   Serial.println("ACK:" + command);
@@ -83,33 +152,6 @@ void processCommand(String command) {
       motorRight.setSpeed(motorSpeed);
     }
   }
-  // Protocol v2 differential PWM (e.g. "M:180,120") — forward directions, per-side speed
-  else if (command.startsWith("M:")) {
-    int commaIndex = command.indexOf(',');
-    if (commaIndex > 2) {
-      int leftSpeed = command.substring(2, commaIndex).toInt();
-      int rightSpeed = command.substring(commaIndex + 1).toInt();
-      if (leftSpeed < 0) leftSpeed = 0;
-      if (leftSpeed > 255) leftSpeed = 255;
-      if (rightSpeed < 0) rightSpeed = 0;
-      if (rightSpeed > 255) rightSpeed = 255;
-      applyDifferential(leftSpeed, rightSpeed);
-    }
-  }
-}
-
-void applyDifferential(int leftSpeed, int rightSpeed) {
-  // Same run directions as moveForward(); steer via asymmetric PWM only.
-  if (leftSpeed == 0 && rightSpeed == 0) {
-    stopMotors();
-    return;
-  }
-
-  motorsStopped = false;
-  motorLeft.setSpeed(leftSpeed);
-  motorRight.setSpeed(rightSpeed);
-  motorLeft.run(BACKWARD);
-  motorRight.run(BACKWARD);
 }
 
 void moveForward() {

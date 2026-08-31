@@ -1,13 +1,13 @@
 # ABIOGENESIS Motor Serial Protocol
 
-Baud: **115200**. Line-terminated commands (`\n`). Arduino ACKs with `ACK:<command>`.
+Baud: **115200**. Line-terminated commands (`\n`). Arduino ACKs with `ACK:<command>` (v1) or `ACK:M` / `NAK:M` (v2.1).
 
 Safety: if no command arrives for **3 seconds**, motors stop (firmware watchdog).
 The app sends a **1-second heartbeat** while moving to keep the watchdog happy.
 
 ---
 
-## Protocol v1 (default)
+## Protocol v1 (always available)
 
 | Command | Meaning |
 |---------|---------|
@@ -18,22 +18,35 @@ The app sends a **1-second heartbeat** while moving to keep the watchdog happy.
 | `S` | Stop / release |
 | `V:XXX` | Set shared PWM speed `0–255` |
 
-Used by Manual Drive, Web pilot, and (later) Follow when differential drive is off.
+Used by Manual Drive, Web pilot, and Follow when differential drive is off (or after auto-fallback).
 
 ---
 
-## Protocol v2 — differential PWM
+## Protocol v2.1 — signed differential PWM
 
 | Command | Meaning |
 |---------|---------|
-| `M:<left>,<right>` | Per-motor PWM `0–255`, run directions same as forward |
+| `M:<left>,<right>` | Per-motor signed PWM **`-255..255`** |
 
-Example: `M:180,120` — left faster than right (gentle curve while moving forward).
+| Sign | Run direction (this L293D shield) |
+|------|-----------------------------------|
+| Positive | Same as discrete `F` (`BACKWARD`) |
+| Negative | Reverse that side (`FORWARD`) |
+| `0,0` | Full stop / RELEASE |
 
-**App gate:** Settings → Robot → `useDifferentialDrive` (default **false**).
+Examples:
+
+- `M:180,120` — both forward; left faster → gentle curve (person on the right)
+- `M:120,180` — both forward; right faster → curve toward person on the left
+- `M:-140,140` — spin in place left (opposite signs)
+- `M:140,-140` — spin in place right
+
+**ACK:** success → `ACK:M` (stable token, not the payload). Parse failure → `NAK:M`.
+
+**App gate:** Settings → Robot → `useDifferentialDrive` (default **true** after Page 11).
 When the flag is off, `RobotController` never emits `M:` even if a claimant requests diff.
 
-**Sign / direction convention (Page 1):** both sides use the same run directions as discrete `F` (`moveForward`). Asymmetric PWM steers by speed difference only. Reverse-per-side rotation via signed PWM is deferred to Follow polish.
+**Fallback:** if Follow’s first `M:` receives `NAK:M` (or no `ACK:M`), the app disables differential for the session, logs a one-shot Settings → LOGS warning, and Follow continues on v1 discrete commands.
 
 ---
 
@@ -41,4 +54,4 @@ When the flag is off, `RobotController` never emits `M:` even if a claimant requ
 
 Only `RobotController` writes production motor bytes (`F/B/L/R/S`, `V:`, `M:`).
 
-`SerialTestScreen` may still call `UsbSerialService.write` for diagnostics.
+`SerialTestScreen` may still call `UsbSerialService.write` for diagnostics (`M:180,120`, `M:-120,120`).

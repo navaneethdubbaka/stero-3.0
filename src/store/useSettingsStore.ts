@@ -30,8 +30,16 @@ interface RobotSettings {
   followDistance: number;
   trackingSensitivity: number;
   motorSpeed: number;
-  /** When true, RobotController may emit Protocol v2 M:left,right */
+  /** When true, RobotController may emit Protocol v2.1 M:left,right */
   useDifferentialDrive: boolean;
+  /** Follow curve max PWM (clamped to motorSpeed at apply time). */
+  followMaxPwm: number;
+  /** Follow curve / spin floor PWM. */
+  followMinPwm: number;
+  /** How hard lateral offset maps to left/right delta. */
+  curveGain: number;
+  /** Max continuous spin-in-place before forced stop (ms). */
+  maxRotateBurstMs: number;
 }
 
 interface DisplaySettings {
@@ -87,7 +95,11 @@ Keep responses very concise, conversational, and direct.`,
     followDistance: 1.0, // meters
     trackingSensitivity: 0.5,
     motorSpeed: 150,
-    useDifferentialDrive: false,
+    useDifferentialDrive: true,
+    followMaxPwm: 180,
+    followMinPwm: 80,
+    curveGain: 1.0,
+    maxRotateBurstMs: 2500,
   },
   display: {
     faceStyle: 'default',
@@ -123,10 +135,18 @@ Keep responses very concise, conversational, and direct.`,
       const parsed = await Storage.getJson<{
         ai?: Partial<AISettings>;
         voice?: Partial<VoiceSettings>;
-        robot?: Partial<RobotSettings>;
+        robot?: Partial<RobotSettings> & Record<string, unknown>;
         display?: Partial<DisplaySettings>;
       }>(KEYS.settings);
       if (!parsed) return;
+
+      const savedRobot = parsed.robot ?? {};
+      // Respect explicit false; otherwise default true (Page 11).
+      const useDiff =
+        savedRobot.useDifferentialDrive !== undefined
+          ? !!savedRobot.useDifferentialDrive
+          : true;
+
       set((state) => ({
         ai: {
           ...state.ai,
@@ -140,12 +160,29 @@ Keep responses very concise, conversational, and direct.`,
         voice: { ...state.voice, ...parsed.voice },
         robot: {
           ...state.robot,
-          ...parsed.robot,
-          useDifferentialDrive:
-            parsed.robot?.useDifferentialDrive ?? state.robot.useDifferentialDrive,
+          ...savedRobot,
+          useDifferentialDrive: useDiff,
+          followMaxPwm:
+            typeof savedRobot.followMaxPwm === 'number'
+              ? savedRobot.followMaxPwm
+              : state.robot.followMaxPwm,
+          followMinPwm:
+            typeof savedRobot.followMinPwm === 'number'
+              ? savedRobot.followMinPwm
+              : state.robot.followMinPwm,
+          curveGain:
+            typeof savedRobot.curveGain === 'number'
+              ? savedRobot.curveGain
+              : state.robot.curveGain,
+          maxRotateBurstMs:
+            typeof savedRobot.maxRotateBurstMs === 'number'
+              ? savedRobot.maxRotateBurstMs
+              : state.robot.maxRotateBurstMs,
         },
         display: { ...state.display, ...parsed.display },
       }));
+
+      RobotController.setUseDifferentialDrive(useDiff);
     } catch (e) {
       console.error('Failed to initialize settings from Storage:', e);
     }

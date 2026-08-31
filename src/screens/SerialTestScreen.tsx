@@ -172,7 +172,29 @@ export const SerialTestScreen: React.FC<{ navigation: any }> = ({ navigation }) 
             </TouchableOpacity>
           </View>
 
-          {/* Row 3: Byte-level writes */}
+          {/* Row 3: Protocol v2.1 differential */}
+          <View style={styles.buttonRow}>
+            <TouchableOpacity
+              style={[styles.actionBtn, styles.btnTeal]}
+              onPress={() => handleSendAndRead('M:180,120\n', 'M:180,120')}
+            >
+              <Text style={styles.actionBtnText}>📤📥{'\n'}M:180,120</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.actionBtn, styles.btnCyan]}
+              onPress={() => handleSendAndRead('M:-120,120\n', 'M:-120,120')}
+            >
+              <Text style={styles.actionBtnText}>📤📥{'\n'}M:-120,120</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.actionBtn, styles.btnRed]}
+              onPress={() => handleSendAndRead('M:0,0\n', 'M:0,0')}
+            >
+              <Text style={styles.actionBtnText}>📤📥{'\n'}M:0,0</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Row 4: Byte-level writes */}
           <View style={styles.buttonRow}>
             <TouchableOpacity style={[styles.actionBtn, styles.btnAmber]} onPress={() => handleSendBytes([0x46, 0x0A], 'F\\n bytes')}>
               <Text style={styles.actionBtnText}>🔢 Bytes{'\n'}[46,0A]</Text>
