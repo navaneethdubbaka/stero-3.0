@@ -93,4 +93,13 @@ describe('CompanionStateMachine', () => {
     CompanionStateMachine.dispatch('SLEEP');
     expect(CompanionStateMachine.dispatch('WAKE').to).toBe('IDLE');
   });
+
+  it('CALL_START interrupts Follow and blocks FOLLOW_START', () => {
+    expect(CompanionStateMachine.dispatch('FOLLOW_START').to).toBe('FOLLOWING');
+    expect(CompanionStateMachine.dispatch('CALL_START').to).toBe('INTERRUPTED');
+    expect(CompanionStateMachine.canFollow()).toBe(false);
+    expect(CompanionStateMachine.dispatch('FOLLOW_START').ok).toBe(false);
+    expect(CompanionStateMachine.dispatch('CALL_END').to).toBe('IDLE');
+    expect(CompanionStateMachine.canFollow()).toBe(true);
+  });
 });

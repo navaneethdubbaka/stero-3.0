@@ -3,7 +3,6 @@ import { StyleSheet, View, Text, TouchableOpacity, ScrollView, TouchableWithoutF
 import { FaceEngine } from '../face/FaceEngine';
 import { useEmotionStore, EmotionType, startBlinkingLoop, stopBlinkingLoop } from '../store/useEmotionStore';
 import { useSleepStore } from '../store/useSleepStore';
-import { useNotificationStore } from '../store/useNotificationStore';
 import { useRobotStore } from '../store/useRobotStore';
 import { useFollowStore } from '../store/useFollowStore';
 import { useCompanionStore } from '../store/useCompanionStore';
@@ -17,6 +16,7 @@ import VoiceService from '../voice/VoiceService';
 import SleepSystem from '../services/SleepSystem';
 import IdleBehaviorEngine from '../services/IdleBehaviorEngine';
 import { NotificationOverlay } from '../components/NotificationOverlay';
+import { NotificationRouter } from '../notifications/NotificationRouter';
 import { useDeviceHealthStore } from '../utils/deviceHealth';
 import { setFaceBrightness, restoreFaceBrightness } from '../utils/deviceHealth';
 import { useSettingsStore } from '../store/useSettingsStore';
@@ -84,25 +84,13 @@ export const FaceScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
     IdleBehaviorEngine.start();
 
     let subscription: any;
+    let removedSub: any;
     try {
       subscription = notificationEmitter.addListener('onNotificationReceived', (event) => {
-        console.log('FaceScreen: Received notification event:', event);
-
-        let source: 'WhatsApp' | 'Telegram' | 'SMS' | 'Call' | 'Email' | 'Calendar' | 'System' = 'System';
-        const pkg = event.packageName.toLowerCase();
-
-        if (pkg.includes('whatsapp')) source = 'WhatsApp';
-        else if (pkg.includes('telegram')) source = 'Telegram';
-        else if (pkg.includes('mms') || pkg.includes('sms') || pkg.includes('messaging')) source = 'SMS';
-        else if (pkg.includes('dialer') || pkg.includes('phone') || pkg.includes('telecom')) source = 'Call';
-
-        useNotificationStore.getState().addNotification({
-          source,
-          sender: event.title || 'Notification',
-          message: event.text || '',
-        });
-
-        SleepSystem.reportActivity();
+        NotificationRouter.ingest(event);
+      });
+      removedSub = notificationEmitter.addListener('onNotificationRemoved', (event) => {
+        NotificationRouter.ingestRemoved(event);
       });
     } catch (err) {
       console.warn('FaceScreen: Failed to setup notification listener', err);
@@ -132,6 +120,9 @@ export const FaceScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
       unsubTracking();
       if (subscription) {
         subscription.remove();
+      }
+      if (removedSub) {
+        removedSub.remove();
       }
       if (longPressTimer.current) {
         clearTimeout(longPressTimer.current);

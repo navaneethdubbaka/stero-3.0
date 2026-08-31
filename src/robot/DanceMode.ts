@@ -76,6 +76,7 @@ const BLOCKED_STATES = new Set([
   'THINKING',
   'SPEAKING',
   'ERROR',
+  'INTERRUPTED',
 ]);
 
 /**

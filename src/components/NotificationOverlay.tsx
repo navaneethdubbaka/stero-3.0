@@ -61,9 +61,11 @@ export const NotificationOverlay: React.FC = () => {
         <Text style={styles.senderText} numberOfLines={1}>
           {activeNotification.sender}
         </Text>
-        <Text style={styles.messageText} numberOfLines={2}>
-          {activeNotification.message}
-        </Text>
+        {activeNotification.showBody !== false && !!activeNotification.message && (
+          <Text style={styles.messageText} numberOfLines={2}>
+            {activeNotification.message}
+          </Text>
+        )}
       </View>
     </Animated.View>
   );

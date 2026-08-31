@@ -70,7 +70,7 @@ class FollowModeImpl {
       return false;
     }
 
-    // Companion arbitration: reject FOLLOW while SLEEP / MANUAL / DANCING
+    // Companion arbitration: reject FOLLOW while SLEEP / MANUAL / DANCING / INTERRUPTED
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { CompanionStateMachine } = require('./CompanionStateMachine');
     if (!CompanionStateMachine.canFollow()) {

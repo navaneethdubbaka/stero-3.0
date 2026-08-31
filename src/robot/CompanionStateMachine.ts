@@ -27,9 +27,14 @@ class CompanionStateMachineImpl {
     return [...this.history];
   }
 
-  /** FOLLOW_START allowed when not asleep, in manual pad, or dancing. */
+  /** FOLLOW_START allowed when not asleep, in manual pad, dancing, or on a call. */
   canFollow(): boolean {
-    return this.state !== 'SLEEP' && this.state !== 'MANUAL' && this.state !== 'DANCING';
+    return (
+      this.state !== 'SLEEP' &&
+      this.state !== 'MANUAL' &&
+      this.state !== 'DANCING' &&
+      this.state !== 'INTERRUPTED'
+    );
   }
 
   subscribe(listener: Listener): () => void {
@@ -163,7 +168,12 @@ class CompanionStateMachineImpl {
         return { ok: false, reason: `LISTEN_ERROR rejected from ${from}` };
 
       case 'FOLLOW_START':
-        if (from === 'SLEEP' || from === 'MANUAL' || from === 'DANCING') {
+        if (
+          from === 'SLEEP' ||
+          from === 'MANUAL' ||
+          from === 'DANCING' ||
+          from === 'INTERRUPTED'
+        ) {
           return { ok: false, reason: `FOLLOW_START rejected from ${from}` };
         }
         if (
@@ -212,6 +222,16 @@ class CompanionStateMachineImpl {
       case 'DANCE_END':
         if (from === 'DANCING') return { ok: true, to: 'IDLE' };
         return { ok: false, reason: `DANCE_END rejected from ${from}` };
+
+      case 'CALL_START':
+        if (from === 'SLEEP') {
+          return { ok: true, to: 'INTERRUPTED' };
+        }
+        return { ok: true, to: 'INTERRUPTED' };
+
+      case 'CALL_END':
+        if (from === 'INTERRUPTED') return { ok: true, to: 'IDLE' };
+        return { ok: true, to: from };
 
       case 'ERROR':
         if (from === 'SLEEP') {

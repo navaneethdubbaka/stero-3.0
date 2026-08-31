@@ -6,6 +6,8 @@ export interface AppNotification {
   sender: string;
   message: string;
   timestamp: number;
+  /** When false, overlay hides the body (face_only). */
+  showBody?: boolean;
 }
 
 interface NotificationState {

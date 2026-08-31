@@ -48,6 +48,9 @@ class EmotionRuleEngine {
       case 'MANUAL':
         setEmotion('ALERT');
         break;
+      case 'INTERRUPTED':
+        setEmotion('ALERT');
+        break;
       case 'DANCING':
         setEmotion('EXCITED');
         break;

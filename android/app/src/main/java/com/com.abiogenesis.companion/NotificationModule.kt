@@ -14,21 +14,25 @@ class NotificationModule(private val reactContext: ReactApplicationContext) : Re
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             intent?.let {
-                if (it.action == NotificationListenerService.ACTION_NOTIFICATION) {
-                    val packageName = it.getStringExtra("packageName") ?: ""
-                    val title = it.getStringExtra("title") ?: ""
-                    val text = it.getStringExtra("text") ?: ""
+                val params = Arguments.createMap().apply {
+                    putString("packageName", it.getStringExtra("packageName") ?: "")
+                    putString("title", it.getStringExtra("title") ?: "")
+                    putString("text", it.getStringExtra("text") ?: "")
+                    putString("category", it.getStringExtra("category") ?: "")
+                    putBoolean("isOngoing", it.getBooleanExtra("isOngoing", false))
+                    putString("key", it.getStringExtra("key") ?: "")
+                }
 
-                    val params = Arguments.createMap().apply {
-                        putString("packageName", packageName)
-                        putString("title", title)
-                        putString("text", text)
-                    }
+                val eventName = when (it.action) {
+                    NotificationListenerService.ACTION_NOTIFICATION_REMOVED -> "onNotificationRemoved"
+                    NotificationListenerService.ACTION_NOTIFICATION -> "onNotificationReceived"
+                    else -> return
+                }
 
-                    Log.d("NotificationModule", "Emitting notification event to JS: $packageName")
+                if (reactContext.hasActiveReactInstance()) {
                     reactContext
                         .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
-                        .emit("onNotificationReceived", params)
+                        .emit(eventName, params)
                 }
             }
         }
@@ -38,9 +42,18 @@ class NotificationModule(private val reactContext: ReactApplicationContext) : Re
         return "NotificationModule"
     }
 
+    @ReactMethod
+    fun addListener(eventName: String) {}
+
+    @ReactMethod
+    fun removeListeners(count: Int) {}
+
     override fun initialize() {
         super.initialize()
-        val filter = IntentFilter(NotificationListenerService.ACTION_NOTIFICATION)
+        val filter = IntentFilter().apply {
+            addAction(NotificationListenerService.ACTION_NOTIFICATION)
+            addAction(NotificationListenerService.ACTION_NOTIFICATION_REMOVED)
+        }
         try {
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
                 reactContext.registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED)

@@ -12,13 +12,14 @@ import { getLogRing } from '../utils/logger';
 import { getDeviceHealth, shareDiagnosticsZip } from '../utils/deviceHealth';
 import { UsbSerialService } from '../services/UsbSerialService';
 import { CompanionStateMachine } from '../robot/CompanionStateMachine';
+import { parseHm } from '../notifications/routeLogic';
 
 const { VoiceModule, NotificationModule } = NativeModules;
 
-type SettingsTab = 'AI' | 'VOICE' | 'ROBOT' | 'DISPLAY' | 'LOGS';
+type SettingsTab = 'AI' | 'VOICE' | 'ROBOT' | 'DISPLAY' | 'NOTIFY' | 'LOGS';
 
 export const SettingsScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
-  const { ai, voice, robot, display, updateAISettings, updateVoiceSettings, updateRobotSettings, updateDisplaySettings } = useSettingsStore();
+  const { ai, voice, robot, display, notifications, updateAISettings, updateVoiceSettings, updateRobotSettings, updateDisplaySettings, updateNotificationSettings } = useSettingsStore();
   const { messages, apiErrors, clearConversation, clearErrors } = useConversationStore();
   const companionHistory = useCompanionStore((state) => state.history);
   const userName = useMemoryStore((s) => s.userName);
@@ -655,6 +656,136 @@ export const SettingsScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
     </View>
   );
 
+  const bumpDnd = (field: 'dndStart' | 'dndEnd', deltaMin: number) => {
+    let m = parseHm(notifications[field]) + deltaMin;
+    m = ((m % (24 * 60)) + 24 * 60) % (24 * 60);
+    const h = Math.floor(m / 60);
+    const min = m % 60;
+    updateNotificationSettings({
+      [field]: `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`,
+    });
+  };
+
+  const renderNotifyTab = () => (
+    <View style={styles.tabContent}>
+      <Text style={styles.sectionTitle}>Notification Sources</Text>
+      <Text style={styles.helperText}>
+        Disable Telegram without affecting WhatsApp. Calls still interrupt Follow during quiet hours.
+      </Text>
+
+      {(
+        [
+          ['whatsapp', 'WhatsApp'],
+          ['telegram', 'Telegram'],
+          ['sms', 'Messages / SMS'],
+          ['phone', 'Phone / Calls'],
+          ['other', 'Other apps'],
+        ] as const
+      ).map(([key, label]) => (
+        <View key={key} style={{ marginBottom: 8 }}>
+          <Text style={styles.label}>{label}</Text>
+          <View style={styles.row}>
+            <TouchableOpacity
+              style={[styles.choiceBtn, !notifications[key] && styles.activeChoiceBtn]}
+              onPress={() => updateNotificationSettings({ [key]: false })}
+            >
+              <Text style={[styles.choiceText, !notifications[key] && styles.activeChoiceText]}>OFF</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.choiceBtn, notifications[key] && styles.activeChoiceBtn]}
+              onPress={() => updateNotificationSettings({ [key]: true })}
+            >
+              <Text style={[styles.choiceText, notifications[key] && styles.activeChoiceText]}>ON</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      ))}
+
+      <Text style={styles.label}>Announce</Text>
+      <View style={styles.row}>
+        <TouchableOpacity
+          style={[styles.choiceBtn, notifications.announceMode === 'face_only' && styles.activeChoiceBtn]}
+          onPress={() => updateNotificationSettings({ announceMode: 'face_only' })}
+        >
+          <Text style={[styles.choiceText, notifications.announceMode === 'face_only' && styles.activeChoiceText]}>
+            FACE ONLY
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.choiceBtn, notifications.announceMode === 'speak' && styles.activeChoiceBtn]}
+          onPress={() => updateNotificationSettings({ announceMode: 'speak' })}
+        >
+          <Text style={[styles.choiceText, notifications.announceMode === 'speak' && styles.activeChoiceText]}>
+            SPEAK
+          </Text>
+        </TouchableOpacity>
+      </View>
+      <Text style={styles.helperText}>
+        Face only shows sender on the overlay (no body). Speak reads sender + a short preview.
+      </Text>
+
+      <Text style={styles.label}>Summarize alerts (LLM)</Text>
+      <View style={styles.row}>
+        <TouchableOpacity
+          style={[styles.choiceBtn, !notifications.summarizeAlerts && styles.activeChoiceBtn]}
+          onPress={() => updateNotificationSettings({ summarizeAlerts: false })}
+        >
+          <Text style={[styles.choiceText, !notifications.summarizeAlerts && styles.activeChoiceText]}>OFF</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.choiceBtn, notifications.summarizeAlerts && styles.activeChoiceBtn]}
+          onPress={() => updateNotificationSettings({ summarizeAlerts: true })}
+        >
+          <Text style={[styles.choiceText, notifications.summarizeAlerts && styles.activeChoiceText]}>ON</Text>
+        </TouchableOpacity>
+      </View>
+      <Text style={styles.helperText}>
+        Default off. Notification bodies are never uploaded unless this is on. (Upload path not enabled in 2.3.0.)
+      </Text>
+
+      <Text style={styles.label}>Quiet hours (DND)</Text>
+      <View style={styles.row}>
+        <TouchableOpacity
+          style={[styles.choiceBtn, !notifications.dndEnabled && styles.activeChoiceBtn]}
+          onPress={() => updateNotificationSettings({ dndEnabled: false })}
+        >
+          <Text style={[styles.choiceText, !notifications.dndEnabled && styles.activeChoiceText]}>OFF</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.choiceBtn, notifications.dndEnabled && styles.activeChoiceBtn]}
+          onPress={() => updateNotificationSettings({ dndEnabled: true })}
+        >
+          <Text style={[styles.choiceText, notifications.dndEnabled && styles.activeChoiceText]}>ON</Text>
+        </TouchableOpacity>
+      </View>
+
+      <Text style={styles.label}>DND start ({notifications.dndStart})</Text>
+      <View style={styles.stepper}>
+        <TouchableOpacity style={styles.stepButton} onPress={() => bumpDnd('dndStart', -30)}>
+          <Text style={styles.stepText}>-</Text>
+        </TouchableOpacity>
+        <Text style={styles.valueDisplay}>{notifications.dndStart}</Text>
+        <TouchableOpacity style={styles.stepButton} onPress={() => bumpDnd('dndStart', 30)}>
+          <Text style={styles.stepText}>+</Text>
+        </TouchableOpacity>
+      </View>
+
+      <Text style={styles.label}>DND end ({notifications.dndEnd})</Text>
+      <View style={styles.stepper}>
+        <TouchableOpacity style={styles.stepButton} onPress={() => bumpDnd('dndEnd', -30)}>
+          <Text style={styles.stepText}>-</Text>
+        </TouchableOpacity>
+        <Text style={styles.valueDisplay}>{notifications.dndEnd}</Text>
+        <TouchableOpacity style={styles.stepButton} onPress={() => bumpDnd('dndEnd', 30)}>
+          <Text style={styles.stepText}>+</Text>
+        </TouchableOpacity>
+      </View>
+      <Text style={styles.helperText}>
+        Messages are silenced in this window. Incoming calls still freeze Follow/Dance.
+      </Text>
+    </View>
+  );
+
   const handleClearCompanionMemory = () => {
     MemoryService.clearMemory();
   };
@@ -671,7 +802,7 @@ export const SettingsScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
     const usb = UsbSerialService.getStatus();
     const payload = {
       app: 'ABIOGENESIS',
-      version: '2.2.0',
+      version: '2.3.0',
       at: new Date().toISOString(),
       usb: {
         isConnected: usb.isConnected,
@@ -869,7 +1000,7 @@ export const SettingsScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
 
       {/* Tabs */}
       <View style={styles.tabsRow}>
-        {(['AI', 'VOICE', 'ROBOT', 'DISPLAY', 'LOGS'] as SettingsTab[]).map((tab) => (
+        {(['AI', 'VOICE', 'ROBOT', 'DISPLAY', 'NOTIFY', 'LOGS'] as SettingsTab[]).map((tab) => (
           <TouchableOpacity
             key={tab}
             style={[styles.tabButton, activeTab === tab && styles.activeTabButton]}
@@ -887,6 +1018,7 @@ export const SettingsScreen: React.FC<{ navigation: any }> = ({ navigation }) =>
         {activeTab === 'VOICE' && renderVoiceTab()}
         {activeTab === 'ROBOT' && renderRobotTab()}
         {activeTab === 'DISPLAY' && renderDisplayTab()}
+        {activeTab === 'NOTIFY' && renderNotifyTab()}
         {activeTab === 'LOGS' && renderLogsTab()}
       </ScrollView>
     </SafeAreaView>
@@ -928,13 +1060,15 @@ const styles = StyleSheet.create({
   },
   tabsRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     backgroundColor: 'rgba(255, 255, 255, 0.02)',
     paddingVertical: 6,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255, 255, 255, 0.05)',
   },
   tabButton: {
-    flex: 1,
+    flexGrow: 1,
+    minWidth: 72,
     paddingVertical: 10,
     alignItems: 'center',
   },

@@ -7,6 +7,7 @@ export type CompanionState =
   | 'FOLLOWING'
   | 'DANCING'
   | 'MANUAL'
+  | 'INTERRUPTED'
   | 'ERROR';
 
 export type CompanionEvent =
@@ -23,6 +24,8 @@ export type CompanionEvent =
   | 'SLEEP'
   | 'DANCE_START'
   | 'DANCE_END'
+  | 'CALL_START'
+  | 'CALL_END'
   | 'ERROR'
   | 'CLEAR_ERROR';
 

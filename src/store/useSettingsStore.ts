@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { RobotController } from '../robot/RobotController';
 import { Storage, KEYS } from '../memory/Storage';
+import type { AnnounceMode, NotificationPrefs } from '../notifications/routeLogic';
 
 interface AISettings {
   baseUrl: string;
@@ -53,10 +54,12 @@ interface SettingsState {
   voice: VoiceSettings;
   robot: RobotSettings;
   display: DisplaySettings;
+  notifications: NotificationPrefs;
   updateAISettings: (settings: Partial<AISettings>) => void;
   updateVoiceSettings: (settings: Partial<VoiceSettings>) => void;
   updateRobotSettings: (settings: Partial<RobotSettings>) => void;
   updateDisplaySettings: (settings: Partial<DisplaySettings>) => void;
+  updateNotificationSettings: (settings: Partial<NotificationPrefs>) => void;
   initializeSettings: () => Promise<void>;
 }
 
@@ -66,6 +69,7 @@ const persistSettings = async (state: SettingsState) => {
     voice: state.voice,
     robot: state.robot,
     display: state.display,
+    notifications: state.notifications,
   });
 };
 
@@ -106,6 +110,18 @@ Keep responses very concise, conversational, and direct.`,
     brightness: 1.0,
     sleepTimeout: 5, // minutes
   },
+  notifications: {
+    whatsapp: true,
+    telegram: true,
+    sms: true,
+    phone: true,
+    other: true,
+    announceMode: 'face_only' as AnnounceMode,
+    summarizeAlerts: false,
+    dndEnabled: false,
+    dndStart: '22:00',
+    dndEnd: '07:00',
+  },
 
   updateAISettings: (settings) => {
     set((state) => ({ ai: { ...state.ai, ...settings } }));
@@ -130,6 +146,10 @@ Keep responses very concise, conversational, and direct.`,
     set((state) => ({ display: { ...state.display, ...settings } }));
     void persistSettings(get());
   },
+  updateNotificationSettings: (settings) => {
+    set((state) => ({ notifications: { ...state.notifications, ...settings } }));
+    void persistSettings(get());
+  },
   initializeSettings: async () => {
     try {
       const parsed = await Storage.getJson<{
@@ -137,6 +157,7 @@ Keep responses very concise, conversational, and direct.`,
         voice?: Partial<VoiceSettings>;
         robot?: Partial<RobotSettings> & Record<string, unknown>;
         display?: Partial<DisplaySettings>;
+        notifications?: Partial<NotificationPrefs>;
       }>(KEYS.settings);
       if (!parsed) return;
 
@@ -180,6 +201,11 @@ Keep responses very concise, conversational, and direct.`,
               : state.robot.maxRotateBurstMs,
         },
         display: { ...state.display, ...parsed.display },
+        notifications: {
+          ...state.notifications,
+          ...parsed.notifications,
+          summarizeAlerts: parsed.notifications?.summarizeAlerts ?? false,
+        },
       }));
 
       RobotController.setUseDifferentialDrive(useDiff);
